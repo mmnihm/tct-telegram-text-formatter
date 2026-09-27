@@ -2,8 +2,8 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 
 const token = process.env.BOT_TOKEN;
-const openaiKey = process.env.OPENAI_API_KEY;
-const openaiModel = process.env.OPENAI_MODEL || "gpt-5.6-luna";
+const openrouterKey = process.env.OPENROUTER_API_KEY;
+const openrouterModel = process.env.OPENROUTER_MODEL || "openrouter/free";
 
 if (!token) {
   console.error("❌ 未找到 BOT_TOKEN");
@@ -69,8 +69,8 @@ function aiKeyboard() {
 }
 
 async function aiFormat(text, style = "自动判断") {
-  if (!openaiKey) {
-    throw new Error("未配置 OPENAI_API_KEY");
+  if (!openrouterKey) {
+    throw new Error("未配置 OPENROUTER_API_KEY");
   }
 
   const styleRule = style === "自动判断"
@@ -95,35 +95,38 @@ async function aiFormat(text, style = "自动判断") {
 ${text}
 ---`;
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${openaiKey}`
+      "Authorization": `Bearer ${openrouterKey}`,
+      "HTTP-Referer": "https://github.com/mmnihm/tct-telegram-text-formatter",
+      "X-Title": "TCT Telegram Text Formatter"
     },
     body: JSON.stringify({
-      model: openaiModel,
-      input: prompt,
-      max_output_tokens: 2000
+      model: openrouterModel,
+      messages: [
+        {
+          role: "system",
+          content: "你是专业的中文 Telegram 文字排版助手，只输出最终排版结果。"
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      max_tokens: 2000,
+      temperature: 0.7
     })
   });
 
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data?.error?.message || `OpenAI API HTTP ${response.status}`);
+    throw new Error(data?.error?.message || `OpenRouter API HTTP ${response.status}`);
   }
 
-  if (data.output_text) return data.output_text.trim();
-
-  const parts = [];
-  for (const item of data.output || []) {
-    for (const content of item.content || []) {
-      if (content.type === "output_text" && content.text) parts.push(content.text);
-    }
-  }
-
-  const result = parts.join("\n").trim();
+  const result = data?.choices?.[0]?.message?.content?.trim();
   if (!result) throw new Error("AI没有返回排版结果");
   return result;
 }
@@ -133,10 +136,10 @@ async function runAI(chatId, user, style = "自动判断") {
     return bot.sendMessage(chatId, "⚠️ 还没有文字，请先发送需要排版的内容。", mainKeyboard());
   }
 
-  if (!openaiKey) {
+  if (!openrouterKey) {
     return bot.sendMessage(
       chatId,
-      "⚠️ AI功能还没有配置。\n\n管理员需要在部署平台添加 OPENAI_API_KEY。\n\n原来的普通排版功能仍然可以正常使用。",
+      "⚠️ AI功能还没有配置。\n\n管理员需要在部署平台添加 OPENROUTER_API_KEY。\n\n原来的普通排版功能仍然可以正常使用。",
       mainKeyboard()
     );
   }
@@ -155,7 +158,7 @@ async function runAI(chatId, user, style = "自动判断") {
     await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
     await bot.sendMessage(
       chatId,
-      `❌ AI排版失败\n\n${err.message}\n\n请检查 OPENAI_API_KEY 和 OPENAI_MODEL 配置。`,
+      `❌ AI排版失败\n\n${err.message}\n\n请检查 OPENROUTER_API_KEY 和 OPENROUTER_MODEL 配置。`,
       mainKeyboard()
     );
   }
