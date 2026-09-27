@@ -63,7 +63,7 @@ function isAdLine(line) {
 
   // Remove obvious standalone promotional links/usernames when attached to ad wording.
   if (/(?:投稿|作品|内容|主页|频道|关注|订阅|查看更多|更多)/.test(s)
-      && /(?:https?:\\/\\/|t\\.me\\/|@[A-Za-z0-9_]{3,})/.test(s)) {
+      && /(?:https?:\/\/|t\.me\/|@[A-Za-z0-9_]{3,})/.test(s)) {
     return true;
   }
 
