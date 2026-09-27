@@ -13,6 +13,38 @@ if (!token) {
 const bot = new TelegramBot(token, { polling: true });
 const users = new Map();
 
+function getUser(chatId) {
+  const user = users.get(chatId) || {
+    style: "✨ 简洁风",
+    text: "",
+    aiText: "",
+    media: null
+  };
+  users.set(chatId, user);
+  return user;
+}
+
+function rememberMessage(msg) {
+  const chatId = msg.chat.id;
+  const user = getUser(chatId);
+  if (msg.text) {
+    user.text = msg.text;
+    user.media = null;
+  } else if (msg.caption) {
+    user.text = msg.caption;
+    if (msg.photo) user.media = { type: "photo", fileId: msg.photo[msg.photo.length - 1].file_id };
+    else if (msg.document) user.media = { type: "document", fileId: msg.document.file_id, fileName: msg.document.file_name || "文件" };
+  } else if (msg.photo) {
+    user.text = "";
+    user.media = { type: "photo", fileId: msg.photo[msg.photo.length - 1].file_id };
+  } else if (msg.document) {
+    user.text = "";
+    user.media = { type: "document", fileId: msg.document.file_id, fileName: msg.document.file_name || "文件" };
+  }
+  users.set(chatId, user);
+  return user;
+}
+
 const styles = {
   "✨ 简洁风": text => `📝 ${text}`,
   "💎 高级风": text => `━━━━━━━━━━━━━━
@@ -132,8 +164,18 @@ ${text}
 }
 
 async function runAI(chatId, user, style = "自动判断") {
-  if (!user.text) {
-    return bot.sendMessage(chatId, "⚠️ 还没有文字，请先发送需要排版的内容。", mainKeyboard());
+  if (!user.text && !user.media) {
+    return bot.sendMessage(chatId, "⚠️ 还没有内容，请先发送文字、图片或文件。", mainKeyboard());
+  }
+
+  if (!user.text && user.media) {
+    return bot.sendMessage(
+      chatId,
+      "🖼️ 已收到图片/文件。
+
+请再发送需要排版的说明文字，然后点击「🤖 AI智能排版」。",
+      mainKeyboard()
+    );
   }
 
   if (!openrouterKey) {
@@ -182,7 +224,8 @@ bot.onText(/^\/help$/, msg => {
 });
 
 bot.on("callback_query", async query => {
-  const chatId = query.message.chat.id;
+  const chatId = query.message?.chat?.id;
+  if (!chatId) return;
   const data = query.data || "";
 
   if (data.startsWith("style:")) {
@@ -203,9 +246,12 @@ bot.on("callback_query", async query => {
 
   if (data.startsWith("ai:")) {
     const style = data.slice(3);
-    const user = users.get(chatId) || { style: "✨ 简洁风", text: "", aiText: "" };
-    await bot.answerCallbackQuery(query.id, { text: "AI正在处理…" });
+    const user = getUser(chatId);
+    try {
+      await bot.answerCallbackQuery(query.id, { text: "AI正在处理…" });
+    } catch (e) {}
     await runAI(chatId, user, style === "current" ? "自动判断" : style);
+    return;
   }
 });
 
@@ -213,7 +259,7 @@ bot.on("message", async msg => {
   if (!msg.text || msg.text.startsWith("/")) return;
 
   const chatId = msg.chat.id;
-  const user = users.get(chatId) || { style: "✨ 简洁风", text: "", aiText: "" };
+  const user = getUser(chatId);
 
   if (msg.text === "📝 开始排版") {
     return bot.sendMessage(chatId, "📝 请直接发送需要排版的文字：", mainKeyboard());
@@ -246,8 +292,21 @@ bot.on("message", async msg => {
     );
   }
 
-  user.text = msg.text;
-  users.set(chatId, user);
+  rememberMessage(msg);
+
+  if (msg.photo || msg.document) {
+    const caption = msg.caption || "";
+    if (caption) {
+      return bot.sendMessage(chatId, styles[user.style](caption), mainKeyboard());
+    }
+    return bot.sendMessage(
+      chatId,
+      "📎 已收到内容。
+
+你可以给图片/文件附上说明文字，再点击「🤖 AI智能排版」。",
+      mainKeyboard()
+    );
+  }
 
   return bot.sendMessage(chatId, styles[user.style](msg.text), mainKeyboard());
 });
