@@ -2,6 +2,9 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 
 const token = process.env.BOT_TOKEN;
+const openrouterKey = process.env.OPENROUTER_API_KEY;
+const openrouterModel = process.env.OPENROUTER_MODEL || "openrouter/free";
+
 if (!token) {
   console.error("❌ 未找到 BOT_TOKEN");
   process.exit(1);
@@ -26,10 +29,7 @@ function getUser(chatId) {
 }
 
 function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function isDivider(line) {
@@ -40,29 +40,29 @@ function isHeading(line) {
   const s = line.trim();
   if (!s || isDivider(s)) return false;
   return /^【.+】$/.test(s)
-    || /^(第[一二三四五六七八九十百]+[章节部分]|[一二三四五六七八九十]+[、.．]|\\d+[、.．)]|#+\\s*)/.test(s)
-    || /^(视频验证处|出售内容包含|价格|售价|活动时间|有效期|联系方式|购买方式|注意事项|温馨提示|使用说明|更新内容)\\s*[:：]/.test(s)
+    || /^(第[一二三四五六七八九十百]+[章节部分]|[一二三四五六七八九十]+[、.．]|\d+[、.．)]|#+\s*)/.test(s)
+    || /^(视频验证处|出售内容包含|价格|售价|活动时间|有效期|联系方式|购买方式|注意事项|温馨提示|使用说明|更新内容)\s*[:：]/.test(s)
     || (s.length <= 30 && /[：:]$/.test(s));
 }
 
 function isImportant(line) {
   const s = line.trim();
-  return /^(视频验证处|出售内容包含)\\s*[:：]/.test(s)
-    || /(?:\\d+(?:\\.\\d+)?\\s*(?:元|分钟|分|天|小时|GB|MB)|¥\\s*\\d+(?:\\.\\d+)?)/.test(s);
+  return /^(视频验证处|出售内容包含)\s*[:：]/.test(s)
+    || /(?:\d+(?:\.\d+)?\s*(?:元|分钟|分|天|小时|GB|MB)|¥\s*\d+(?:\.\d+)?)/.test(s);
 }
 
 function formatSmart(raw, styleName) {
   const style = styles[styleName] || styles["✨ 简洁风"];
-  let text = String(raw || "").replace(/\\r/g, "").trim();
+  let text = String(raw || "").replace(/\r/g, "").trim();
   if (!text) return "";
 
-  text = text.replace(/[ \\t]+$/gm, "").replace(/\\n{3,}/g, "\\n\\n");
-  const lines = text.split("\\n");
+  text = text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
   const output = [];
   let firstContent = true;
 
-  for (const original of lines) {
+  for (const original of text.split("\n")) {
     const line = original.trim();
+
     if (!line) {
       if (output.length && output[output.length - 1] !== "") output.push("");
       continue;
@@ -70,8 +70,7 @@ function formatSmart(raw, styleName) {
 
     if (isDivider(line)) {
       if (output.length && output[output.length - 1] !== "") output.push("");
-      output.push("━━━━━━━━━━━━━━");
-      output.push("");
+      output.push("━━━━━━━━━━━━━━", "");
       continue;
     }
 
@@ -81,25 +80,18 @@ function formatSmart(raw, styleName) {
     if (firstContent) {
       firstContent = false;
       output.push("<b>" + (style.icon ? style.icon + " " : "") + escapeHtml(line) + "</b>");
-      continue;
-    }
-
-    if (heading || important) {
+    } else if (heading || important) {
       if (output.length && output[output.length - 1] !== "") output.push("");
-      const prefix = heading && !/^【/.test(line) ? "▸ " : "";
-      output.push(prefix + "<b>" + escapeHtml(line) + "</b>");
-      continue;
+      output.push((heading && !/^【/.test(line) ? "▸ " : "") + "<b>" + escapeHtml(line) + "</b>");
+    } else {
+      output.push(escapeHtml(line));
     }
-
-    output.push(escapeHtml(line));
   }
 
   while (output.length && output[output.length - 1] === "") output.pop();
 
-  let result = output.join("\\n");
-  if (style.divider && result) {
-    result = "━━━━━━━━━━━━━━\\n" + result + "\\n━━━━━━━━━━━━━━";
-  }
+  let result = output.join("\n");
+  if (style.divider && result) result = "━━━━━━━━━━━━━━\n" + result + "\n━━━━━━━━━━━━━━";
   return result;
 }
 
@@ -107,8 +99,9 @@ function mainKeyboard() {
   return {
     reply_markup: {
       keyboard: [
-        [{ text: "📝 开始排版" }, { text: "🎨 排版风格" }],
-        [{ text: "🔄 重新排版" }, { text: "ℹ️ 使用帮助" }]
+        [{ text: "📝 开始排版" }, { text: "🤖 AI智能排版" }],
+        [{ text: "🎨 排版风格" }, { text: "🔄 重新排版" }],
+        [{ text: "ℹ️ 使用帮助" }]
       ],
       resize_keyboard: true
     }
@@ -125,26 +118,135 @@ function styleKeyboard() {
   };
 }
 
-function sendFormatted(chatId, text, style) {
-  return bot.sendMessage(chatId, formatSmart(text, style), {
-    ...mainKeyboard(),
-    parse_mode: "HTML"
-  });
+function aiKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🤖 AI智能排版当前文字", callback_data: "ai:current" }],
+        [{ text: "💎 AI排版 + 高级风", callback_data: "ai:高级风" }],
+        [{ text: "🔥 AI排版 + 宣传风", callback_data: "ai:宣传风" }],
+        [{ text: "📋 AI排版 + 信息风", callback_data: "ai:信息风" }]
+      ]
+    }
+  };
 }
 
-bot.onText(/^\\/start$/, msg => {
+async function aiFormat(text, style = "自动判断") {
+  if (!openrouterKey) {
+    throw new Error("未配置 OPENROUTER_API_KEY");
+  }
+
+  const styleRule = style === "自动判断"
+    ? "根据内容自动选择合适的排版结构。"
+    : "采用" + style + "的视觉风格。";
+
+  const prompt = [
+    "你是中文 Telegram 文字排版助手。",
+    "只负责整理用户提供的合法内容，不改变事实，不编造价格、时间、链接、联系方式或其他信息。",
+    "保留原文的重要数字、名称、链接和账号。",
+    "自动识别标题、小标题、列表、价格、时间、联系方式等并合理分段。",
+    "不要写解释、不要加前言，只输出最终排版结果。",
+    "不要生成或改写涉及未成年人的色情或性内容；遇到这类内容只回复：无法处理该内容。",
+    styleRule,
+    "",
+    "用户原文：",
+    text
+  ].join("\n");
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + openrouterKey,
+        "HTTP-Referer": "https://github.com/mmnihm/tct-telegram-text-formatter",
+        "X-Title": "TCT Telegram Text Formatter"
+      },
+      body: JSON.stringify({
+        model: openrouterModel,
+        messages: [
+          { role: "system", content: "你是专业的中文 Telegram 文字排版助手，只输出最终结果。" },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 2500,
+        temperature: 0.4
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.error?.message || ("OpenRouter HTTP " + response.status));
+    }
+
+    const result = data?.choices?.[0]?.message?.content?.trim();
+    if (!result) throw new Error("AI没有返回内容");
+    return result;
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error("AI请求超时，请稍后再试");
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runAI(chatId, style) {
+  const user = getUser(chatId);
+
+  if (!user.text) {
+    await bot.sendMessage(chatId, "⚠️ 还没有文字。\n\n请先发送需要排版的文字，再点击「🤖 AI智能排版」。", mainKeyboard());
+    return;
+  }
+
+  if (!openrouterKey) {
+    await bot.sendMessage(
+      chatId,
+      "⚠️ AI排版目前没有启用。\n\n请在部署平台添加：\nOPENROUTER_API_KEY\n\n普通排版不受影响。",
+      mainKeyboard()
+    );
+    return;
+  }
+
+  const wait = await bot.sendMessage(chatId, "🤖 AI正在排版，请稍候…");
+
+  try {
+    const result = await aiFormat(user.text, style);
+    user.text = result;
+    users.set(chatId, user);
+
+    await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
+    await bot.sendMessage(chatId, escapeHtml(result), {
+      ...mainKeyboard(),
+      parse_mode: "HTML"
+    });
+  } catch (err) {
+    console.error("AI error:", err);
+    await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
+    await bot.sendMessage(
+      chatId,
+      "❌ AI排版失败\n\n原因：" + err.message + "\n\n请检查 OPENROUTER_API_KEY、OPENROUTER_MODEL 和部署日志。",
+      mainKeyboard()
+    );
+  }
+}
+
+bot.onText(/^\/start$/, msg => {
   users.set(msg.chat.id, { style: "✨ 简洁风", text: "" });
   bot.sendMessage(
     msg.chat.id,
-    "👋 欢迎使用文字排版机器人！\\n\\n直接发送文字即可自动整理。标题、视频信息、价格和关键内容会自动突出，正文尽量保持原文。\\n\\n👇 请选择功能：",
+    "👋 欢迎使用文字排版机器人！\n\n直接发送文字即可自动排版，也可以使用 AI 智能排版。\n\n👇 请选择功能：",
     mainKeyboard()
   );
 });
 
-bot.onText(/^\\/help$/, msg => {
+bot.onText(/^\/help$/, msg => {
   bot.sendMessage(
     msg.chat.id,
-    "📖 使用帮助\\n\\n1️⃣ 直接发送文字：自动排版\\n2️⃣ 🎨 排版风格：选择视觉风格\\n3️⃣ 🔄 重新排版：重新整理上一条文字\\n\\n标题自动加粗；视频验证、出售内容、价格、时间等关键行自动突出；不主动添加原文没有的信息。",
+    "📖 使用帮助\n\n1️⃣ 直接发送文字：普通排版\n2️⃣ 🤖 AI智能排版：AI自动整理结构\n3️⃣ 🎨 排版风格：选择视觉风格\n4️⃣ 🔄 重新排版：重新整理上一条文字",
     mainKeyboard()
   );
 });
@@ -154,23 +256,35 @@ bot.on("callback_query", async query => {
   if (!chatId) return;
 
   const data = query.data || "";
-  if (!data.startsWith("style:")) return;
 
-  const style = data.slice(6);
-  const user = getUser(chatId);
-  user.style = styles[style] ? style : "✨ 简洁风";
-  users.set(chatId, user);
+  try {
+    if (data.startsWith("style:")) {
+      const style = data.slice(6);
+      const user = getUser(chatId);
+      user.style = styles[style] ? style : "✨ 简洁风";
+      users.set(chatId, user);
 
-  await bot.answerCallbackQuery(query.id, { text: "已切换：" + user.style });
+      await bot.answerCallbackQuery(query.id, { text: "已切换：" + user.style });
 
-  if (user.text) {
-    await sendFormatted(chatId, user.text, user.style);
-  } else {
-    await bot.sendMessage(
-      chatId,
-      "🎨 已选择「" + user.style + "」\\n\\n现在把需要排版的文字发给我即可。",
-      mainKeyboard()
-    );
+      if (user.text) {
+        await bot.sendMessage(chatId, formatSmart(user.text, user.style), {
+          ...mainKeyboard(),
+          parse_mode: "HTML"
+        });
+      } else {
+        await bot.sendMessage(chatId, "🎨 已选择「" + user.style + "」\n\n现在发送需要排版的文字即可。", mainKeyboard());
+      }
+      return;
+    }
+
+    if (data.startsWith("ai:")) {
+      await bot.answerCallbackQuery(query.id, { text: "AI开始处理…" });
+      const style = data === "ai:current" ? "自动判断" : data.slice(3);
+      await runAI(chatId, style);
+    }
+  } catch (err) {
+    console.error("Callback error:", err);
+    await bot.sendMessage(chatId, "❌ 操作失败：" + err.message, mainKeyboard()).catch(() => {});
   }
 });
 
@@ -184,28 +298,41 @@ bot.on("message", async msg => {
     return bot.sendMessage(chatId, "📝 请直接发送需要排版的文字：", mainKeyboard());
   }
 
+  if (msg.text === "🤖 AI智能排版") {
+    return bot.sendMessage(
+      chatId,
+      "🤖 AI智能排版\n\n请选择一种方式：\n\nAI会自动整理标题、段落、列表和关键信息。",
+      aiKeyboard()
+    );
+  }
+
   if (msg.text === "🎨 排版风格") {
     return bot.sendMessage(chatId, "🎨 请选择排版风格：", styleKeyboard());
   }
 
   if (msg.text === "🔄 重新排版") {
-    if (!user.text) {
-      return bot.sendMessage(chatId, "⚠️ 还没有上一条文字，请先发送需要排版的内容。", mainKeyboard());
-    }
-    return sendFormatted(chatId, user.text, user.style);
+    if (!user.text) return bot.sendMessage(chatId, "⚠️ 还没有上一条文字，请先发送内容。", mainKeyboard());
+    return bot.sendMessage(chatId, formatSmart(user.text, user.style), {
+      ...mainKeyboard(),
+      parse_mode: "HTML"
+    });
   }
 
   if (msg.text === "ℹ️ 使用帮助") {
     return bot.sendMessage(
       chatId,
-      "📖 直接发送文字即可排版。\\n\\n标题会自动加粗，视频信息、价格、时间等关键内容会单独突出，正文不会被机器人随意改写。",
+      "📖 直接发送文字即可排版。\n\n🤖 AI智能排版可以自动分析结构。\n🎨 排版风格可以切换视觉样式。\n🔄 重新排版可以再次整理上一条文字。",
       mainKeyboard()
     );
   }
 
   user.text = msg.text;
   users.set(chatId, user);
-  return sendFormatted(chatId, msg.text, user.style);
+
+  return bot.sendMessage(chatId, formatSmart(msg.text, user.style), {
+    ...mainKeyboard(),
+    parse_mode: "HTML"
+  });
 });
 
 bot.on("polling_error", err => {
