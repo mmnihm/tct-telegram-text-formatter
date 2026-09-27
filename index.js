@@ -28,6 +28,23 @@ function getUser(chatId) {
   return user;
 }
 
+function cleanText(raw) {
+  return String(raw || "")
+    // Remove the common invisible replacement/object placeholder character.
+    .replace(/[\uFFFC\uFFFD]/g, "")
+    // Remove zero-width and byte-order-mark characters.
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    // Remove other C0 control characters while preserving tabs and newlines.
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    // Normalize line endings.
+    .replace(/\r\n?/g, "\n")
+    // Remove trailing spaces/tabs from every line.
+    .replace(/[ \t]+$/gm, "")
+    // Keep at most one blank line between paragraphs.
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function escapeHtml(text) {
   return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -53,7 +70,7 @@ function isImportant(line) {
 
 function formatSmart(raw, styleName) {
   const style = styles[styleName] || styles["✨ 简洁风"];
-  let text = String(raw || "").replace(/\r/g, "").trim();
+  let text = cleanText(raw);
   if (!text) return "";
 
   text = text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
