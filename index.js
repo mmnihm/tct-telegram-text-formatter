@@ -45,6 +45,69 @@ function cleanText(raw) {
     .trim();
 }
 
+const AD_PATTERNS = [
+  /^(?:查看|看看|浏览|阅读|进入|点击|跳转).{0,12}(?:其他|更多|以前|历史|上一篇|下一篇).{0,12}(?:投稿|文章|作品|内容)/i,
+  /^(?:更多|其他|以前|历史).{0,12}(?:投稿|文章|作品|内容).{0,12}(?:请|可|欢迎|点击|进入)/i,
+  /^(?:欢迎|记得|可以|请).{0,12}(?:关注|订阅|收藏|加我|联系我)/i,
+  /^(?:关注|订阅|收藏).{0,16}(?:我|作者|主页|频道|账号)/i,
+  /^(?:点击|进入|查看|打开).{0,20}(?:链接|主页|频道|群组|个人主页)/i,
+  /^(?:更多精彩|更多内容|持续更新|后续更新|还有更多)/i,
+  /^(?:想看更多|想看其他|想了解更多).{0,20}(?:投稿|内容|作品|文章)/i,
+  /^(?:我的|本人).{0,12}(?:其他投稿|其他作品|更多内容|主页|频道)/i
+];
+
+function isAdLine(line) {
+  const s = String(line || "").trim();
+  if (!s) return false;
+  if (AD_PATTERNS.some(pattern => pattern.test(s))) return true;
+
+  // Remove obvious standalone promotional links/usernames when attached to ad wording.
+  if (/(?:投稿|作品|内容|主页|频道|关注|订阅|查看更多|更多)/.test(s)
+      && /(?:https?:\\/\\/|t\\.me\\/|@[A-Za-z0-9_]{3,})/.test(s)) {
+    return true;
+  }
+
+  return false;
+}
+
+function removeAdContent(raw) {
+  const text = cleanText(raw);
+  if (!text) return "";
+
+  const kept = text
+    .split("\n")
+    .filter(line => !isAdLine(line));
+
+  return cleanText(kept.join("\n"));
+}
+
+function simplifyText(raw) {
+  let text = removeAdContent(raw);
+  if (!text) return "";
+
+  // Remove common filler words only when they are used as standalone discourse fillers.
+  const fillerPatterns = [
+    /^(?:然后|然后呢|就是|那个|这个|其实|就是说|怎么说呢|我觉得吧|反正|总之)[，,、：:\s]+/g,
+    /(?:[，,、]\s*)?(?:然后呢|就是说|怎么说呢|我觉得吧)(?:[，,、]\s*)?/g
+  ];
+
+  for (const pattern of fillerPatterns) {
+    text = text.replace(pattern, "");
+  }
+
+  // Collapse repeated punctuation without changing normal sentence meaning.
+  text = text
+    .replace(/[，,]{2,}/g, "，")
+    .replace(/[。]{2,}/g, "。")
+    .replace(/[！!]{2,}/g, "！")
+    .replace(/[？?]{2,}/g, "？")
+    .replace(/([。！？!?])\1+/g, "$1")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n");
+
+  return cleanText(text);
+}
+
 function escapeHtml(text) {
   return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -116,9 +179,9 @@ function mainKeyboard() {
   return {
     reply_markup: {
       keyboard: [
-        [{ text: "📝 开始排版" }, { text: "🤖 AI智能排版" }],
-        [{ text: "🎨 排版风格" }, { text: "🔄 重新排版" }],
-        [{ text: "ℹ️ 使用帮助" }]
+        [{ text: "📝 开始排版" }, { text: "🧹 投稿净化" }],
+        [{ text: "🤖 AI智能排版" }, { text: "🎨 排版风格" }],
+        [{ text: "🔄 重新排版" }, { text: "ℹ️ 使用帮助" }]
       ],
       resize_keyboard: true
     }
@@ -263,7 +326,7 @@ bot.onText(/^\/start$/, msg => {
 bot.onText(/^\/help$/, msg => {
   bot.sendMessage(
     msg.chat.id,
-    "📖 使用帮助\n\n1️⃣ 直接发送文字：普通排版\n2️⃣ 🤖 AI智能排版：AI自动整理结构\n3️⃣ 🎨 排版风格：选择视觉风格\n4️⃣ 🔄 重新排版：重新整理上一条文字",
+    "📖 使用帮助\n\n1️⃣ 直接发送文字：普通排版\n2️⃣ 🧹 投稿净化：去隐藏字符、明显广告和口头废话\n3️⃣ 🤖 AI智能排版：AI自动整理结构\n4️⃣ 🎨 排版风格：选择视觉风格\n5️⃣ 🔄 重新排版：重新整理上一条文字",
     mainKeyboard()
   );
 });
@@ -315,6 +378,25 @@ bot.on("message", async msg => {
     return bot.sendMessage(chatId, "📝 请直接发送需要排版的文字：", mainKeyboard());
   }
 
+  if (msg.text === "🧹 投稿净化") {
+    if (!user.text) {
+      return bot.sendMessage(chatId, "🧹 投稿净化\n\n请先发送一段投稿文字，我会自动清理隐藏字符、明显广告、其他投稿推荐和部分口头废话，再进行干净排版。", mainKeyboard());
+    }
+
+    const cleaned = simplifyText(user.text);
+    user.text = cleaned;
+    users.set(chatId, user);
+
+    return bot.sendMessage(
+      chatId,
+      cleaned ? formatSmart(cleaned, "🖤 极简风") : "⚠️ 清理后没有剩余内容。",
+      {
+        ...mainKeyboard(),
+        parse_mode: "HTML"
+      }
+    );
+  }
+
   if (msg.text === "🤖 AI智能排版") {
     return bot.sendMessage(
       chatId,
@@ -338,12 +420,12 @@ bot.on("message", async msg => {
   if (msg.text === "ℹ️ 使用帮助") {
     return bot.sendMessage(
       chatId,
-      "📖 直接发送文字即可排版。\n\n🤖 AI智能排版可以自动分析结构。\n🎨 排版风格可以切换视觉样式。\n🔄 重新排版可以再次整理上一条文字。",
+      "📖 直接发送文字即可排版。\n\n🧹 投稿净化：自动清理隐藏字符、明显引流广告、其他投稿推荐和部分口头废话。\n🤖 AI智能排版可以自动分析结构。\n🎨 排版风格可以切换视觉样式。\n🔄 重新排版可以再次整理上一条文字。",
       mainKeyboard()
     );
   }
 
-  user.text = msg.text;
+  user.text = cleanText(msg.text);
   users.set(chatId, user);
 
   return bot.sendMessage(chatId, formatSmart(msg.text, user.style), {
