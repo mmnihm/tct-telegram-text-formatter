@@ -80,7 +80,7 @@ function normalizeAdProbe(raw) {
     .toLowerCase()
     // Detection-only normalization: make obfuscated promotional wording easier to spot.
     .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, "")
-    .replace(/[\\s·•.。_—–-]+/g, "");
+    .replace(/[\s·•.。_—–-]+/g, "");
 }
 
 function isAdLine(line) {
@@ -122,12 +122,12 @@ function removeAdContent(raw) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const next = lines[i + 1] || "";
-    const previous = kept.length ? kept[kept.length - 1] : "";
+    const previous = i > 0 ? lines[i - 1] : "";
 
     // If an explicit CTA introduces a link on the next line, remove both together.
     const isExplicitCta = /(?:点击|进入|加入|关注|订阅|私信|联系|加群|进群|扫码|领取).{0,20}(?:链接|频道|群|主页|账号|获取|联系|下载)/i.test(line);
     const nextIsSocialLink = /^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/[A-Za-z0-9_+/?=-]+\s*$/i.test(next.trim());
-    if (isExplicitCta && nextIsSocialLink) {
+    if ((isExplicitCta || isAdLine(line)) && nextIsSocialLink) {
       i++; // Drop the associated invitation link together with its explicit CTA.
       continue;
     }
@@ -293,7 +293,8 @@ function formatChannelPost(raw) {
 function makeForumTags(title, lines) {
   const stopWords = new Set([
     "这个", "那个", "一个", "一些", "我们", "他们", "然后", "就是", "真的", "可以",
-    "内容", "分享", "标题", "原帖", "求助", "大家", "今天", "现在", "本人", "作者"
+    "内容", "分享", "标题", "原帖", "求助", "大家", "今天", "现在", "本人", "作者",
+    "什么", "怎么", "为什么", "有没有", "求一个", "谢谢大家", "帮忙看看"
   ]);
   const candidates = [];
   const add = value => {
@@ -301,36 +302,37 @@ function makeForumTags(title, lines) {
       .replace(/^#+/, "")
       .replace(/[^\p{Script=Han}A-Za-z0-9]/gu, "")
       .trim();
-    if (tag.length >= 2 && tag.length <= 12 && !stopWords.has(tag) && !candidates.includes(tag)) {
-      candidates.push(tag);
-    }
+    if (tag.length < 2 || tag.length > 12 || stopWords.has(tag) || candidates.includes(tag)) return;
+    candidates.push(tag);
   };
 
-  // Reuse meaningful existing hashtags first, if the source already has them.
-  const sourceText = [title, ...lines.slice(1, 8)].join("\n");
-  for (const match of sourceText.matchAll(/#([\p{Script=Han}A-Za-z0-9]{2,12})/gu)) add(match[1]);
+  const sourceLines = [title, ...lines.slice(0, 12)];
+  // Existing hashtags are the strongest signal; preserve their wording and avoid duplicates.
+  for (const sourceLine of sourceLines) {
+    for (const match of sourceLine.matchAll(/#([\p{Script=Han}A-Za-z0-9]{2,12})/gu)) add(match[1]);
+  }
 
-  // Prefer title phrases, then meaningful terms from the body.
-  for (const part of title.split(/[，。！？!?、：:｜|\/\s\-—_【】\[\]()（）]+/)) add(part);
-  const bodyText = lines.slice(1, 12)
-    .filter(line => !/楼主/.test(line) && !/^\d{4}-\d{2}-\d{2}/.test(line) && !isDivider(line))
+  // Prefer explicit title phrases separated by punctuation or whitespace.
+  const titleParts = title.split(/[，。！？!?、：:｜|\/\s\-—_【】\[\]()（）]+/).filter(Boolean);
+  for (const part of titleParts) {
+    if (part.length <= 12) add(part);
+    // Skip long unseparated title fragments; body keywords and existing hashtags
+    // are better than inventing arbitrary chunks of a sentence.
+  }
+
+  // Use body keywords only after title terms, ignoring metadata and divider lines.
+  const bodyText = lines.slice(0, 12)
+    .filter(line => !/楼主\s*$/.test(line) && !/^(?:作者|发布者|用户|发布时间)\s*[:：]/.test(line))
+    .filter(line => !/^\d{4}-\d{2}-\d{2}/.test(line) && !isDivider(line))
+    .filter(line => !/^(?:#[\p{Script=Han}A-Za-z0-9]{2,12}\s*)+$/u.test(line.trim()))
     .join(" ");
-  for (const match of (title + " " + bodyText).matchAll(/[\p{Script=Han}]{2,6}|[A-Za-z][A-Za-z0-9]{1,11}|\d{2,}/gu)) {
+  for (const match of bodyText.matchAll(/[\p{Script=Han}]{2,6}|[A-Za-z][A-Za-z0-9]{1,11}|\d{2,}/gu)) {
     add(match[0]);
     if (candidates.length >= 4) break;
   }
 
-  // If the title is one long Chinese phrase, use short title fragments rather than inventing topics.
-  if (candidates.length < 3) {
-    const compactTitle = title.replace(/[^\p{Script=Han}A-Za-z0-9]/gu, "");
-    for (let i = 0; i < compactTitle.length && candidates.length < 3; i += 3) {
-      add(compactTitle.slice(i, i + 6));
-    }
-  }
-
   return candidates.slice(0, 4).map(tag => "#" + tag).join(" ");
 }
-
 function formatForumPost(raw) {
   const lines = cleanText(raw).split("\n");
   const titleIndex = lines.findIndex(line => line.trim() && !isDivider(line.trim()));
@@ -353,17 +355,16 @@ function formatForumPost(raw) {
       continue;
     }
 
-    // Drop source hashtag-only lines because the normalized tags are placed under the title.
+    // Source tags are represented once under the title.
     if (/^(?:#[\p{Script=Han}A-Za-z0-9]{2,12}\s*)+$/u.test(line)) continue;
 
-    // Keep the author's name, but remove the forum role label "楼主".
-    if (/楼主/.test(line)) {
-      const author = line
-        .replace(/楼主/g, "")
-        .replace(/^[#＃\s]+/, "")
-        .replace(/^(?:作者|发布者|用户)\s*[:：]\s*/, "")
-        .replace(/[|｜·•]+/g, " ")
-        .trim();
+    // Only treat a line as author metadata when "楼主" is a role suffix,
+    // rather than dropping ordinary body sentences that happen to mention 楼主.
+    const authorRole = line.match(/^#([\p{Script=Han}A-Za-z0-9_.-]{1,40})楼主$/u)
+      || line.match(/^#([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s+楼主$/u)
+      || line.match(/^([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s+楼主$/u);
+    if (authorRole) {
+      const author = authorRole[1].replace(/^[#＃\s]+/, "").trim();
       if (author && !authorAdded) {
         body.push("👤 作者：" + escapeHtml(author));
         authorAdded = true;
@@ -371,22 +372,23 @@ function formatForumPost(raw) {
       continue;
     }
 
-    const dateMatch = line.match(/(?:发布时间\s*[:：]?\s*)?(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)/);
-    if (dateMatch) {
-      if (!dateAdded) {
-        body.push("🕒 发布时间：" + escapeHtml(dateMatch[1].replace("T", " ")));
-        dateAdded = true;
-      } else {
-        body.push(escapeHtml(line));
+    const explicitAuthor = line.match(/^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/);
+    if (explicitAuthor && !authorAdded) {
+      const author = explicitAuthor[1].replace(/\s*(?:[#＃|｜·•]\s*)?楼主\s*$/, "").trim();
+      if (author) {
+        body.push("👤 作者：" + escapeHtml(author));
+        authorAdded = true;
       }
       continue;
     }
 
-    // Also normalize explicit author metadata that does not include the forum role label.
-    const explicitAuthor = line.match(/^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/);
-    if (explicitAuthor && !authorAdded) {
-      body.push("👤 作者：" + escapeHtml(explicitAuthor[1].trim()));
-      authorAdded = true;
+    // Normalize only a date-only line or explicit publication-date metadata;
+    // do not discard surrounding text such as "活动时间：2026-10-11".
+    const dateMatch = line.match(/^(?:发布时间|发布于|日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/)
+      || line.match(/^(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/);
+    if (dateMatch && !dateAdded) {
+      body.push("🕒 发布时间：" + escapeHtml(dateMatch[1].replace("T", " ")));
+      dateAdded = true;
       continue;
     }
 
@@ -400,7 +402,6 @@ function formatForumPost(raw) {
   output.push("", "━━━━━━━━━━━━━━");
   return output.join("\n");
 }
-
 function splitTextSafely(raw, maxLength = OUTPUT_CHUNK_SIZE) {
   const text = cleanText(raw);
   if (!text) return [];
@@ -435,23 +436,74 @@ function splitTextSafely(raw, maxLength = OUTPUT_CHUNK_SIZE) {
   return chunks;
 }
 
+function splitFormattedHtml(raw, maxLength = OUTPUT_CHUNK_SIZE) {
+  const text = String(raw || "");
+  if (!text) return [];
+
+  const chunks = [];
+  let current = "";
+  let currentLength = 0;
+  let openBold = false;
+  const tokens = text.match(/<b>|<\/b>|&(?:amp|lt|gt|quot|#39);|[\s\S]/g) || [];
+
+  for (const token of tokens) {
+    if (token === "<b>") {
+      current += token;
+      currentLength += token.length;
+      openBold = true;
+      continue;
+    }
+    if (token === "</b>") {
+      current += token;
+      currentLength += token.length;
+      openBold = false;
+      continue;
+    }
+
+    if (token === "\n") {
+      if (currentLength + 1 > maxLength && current) {
+        if (openBold) current += "</b>";
+        chunks.push(current);
+        current = openBold ? "<b>" : "";
+        currentLength = current.length;
+      } else {
+        current += token;
+        currentLength += 1;
+      }
+      continue;
+    }
+
+    const visibleLength = token.startsWith("&") ? 1 : token.length;
+    if (currentLength + token.length > maxLength && current) {
+      if (openBold) current += "</b>";
+      chunks.push(current);
+      current = openBold ? "<b>" : "";
+      currentLength = current.length;
+    }
+    current += token;
+    currentLength += token.length;
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 async function sendFormattedText(chatId, raw, styleName, keyboard = mainKeyboard()) {
-  const chunks = splitTextSafely(raw);
+  const formatted = formatSmart(raw, styleName);
+  const chunks = splitFormattedHtml(formatted);
   if (!chunks.length) {
     return bot.sendMessage(chatId, "⚠️ 没有可排版的文字。", keyboard);
   }
 
   for (let i = 0; i < chunks.length; i++) {
-    const formatted = formatSmart(chunks[i], styleName);
     const options = { parse_mode: "HTML" };
     // Show the main keyboard only once, on the final part of a multi-message result.
     if (i === chunks.length - 1 && keyboard) {
       Object.assign(options, keyboard);
     }
-    await bot.sendMessage(chatId, formatted, options);
+    await bot.sendMessage(chatId, chunks[i], options);
   }
 }
-
 function mainKeyboard() {
   return {
     reply_markup: {
@@ -583,13 +635,14 @@ async function runAI(chatId, style) {
     const result = cleanText(await aiFormat(user.text, style));
     if (!result) throw new Error("AI没有返回可用文字");
 
-    user.text = result;
-    users.set(chatId, user);
-
-    await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
     const visualStyle = style === "自动判断"
       ? user.style
       : (Object.keys(styles).find(name => name.includes(style)) || user.style);
+    user.text = result;
+    user.lastFormatMode = visualStyle;
+    users.set(chatId, user);
+
+    await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
     await sendFormattedText(chatId, result, visualStyle);
   } catch (err) {
     console.error("AI error:", err);
@@ -638,6 +691,8 @@ bot.on("callback_query", async query => {
       await bot.answerCallbackQuery(query.id, { text: "已切换：" + user.style });
 
       if (user.text) {
+        user.lastFormatMode = user.style;
+        users.set(chatId, user);
         await sendFormattedText(chatId, user.text, user.style);
       } else {
         await bot.sendMessage(chatId, "🎨 已选择「" + user.style + "」\n\n现在发送需要排版的文字即可。", mainKeyboard());
@@ -675,6 +730,7 @@ bot.on("message", async msg => {
 
     const cleaned = simplifyText(user.text);
     user.text = cleaned;
+    user.lastFormatMode = "🖤 极简风";
     users.set(chatId, user);
 
     if (!cleaned) {
