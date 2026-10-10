@@ -24,6 +24,12 @@ npm start
 
 机器人使用 polling 模式，不需要设置 Webhook 或开放 HTTP 端口。
 
+部署前可运行以下命令检查 JavaScript 语法：
+
+```bash
+npm run check
+```
+
 ## 环境变量
 
 必须配置：
