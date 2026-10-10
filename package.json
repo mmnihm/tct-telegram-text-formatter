@@ -4,7 +4,8 @@
   "description": "TCT Telegram文字排版机器人",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "check": "node --check index.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
