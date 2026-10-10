@@ -122,12 +122,12 @@ function removeAdContent(raw) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const next = lines[i + 1] || "";
-    const previous = kept.length ? kept[kept.length - 1] : "";
+    const previous = i > 0 ? lines[i - 1] : "";
 
     // If an explicit CTA introduces a link on the next line, remove both together.
     const isExplicitCta = /(?:点击|进入|加入|关注|订阅|私信|联系|加群|进群|扫码|领取).{0,20}(?:链接|频道|群|主页|账号|获取|联系|下载)/i.test(line);
     const nextIsSocialLink = /^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/[A-Za-z0-9_+/?=-]+\s*$/i.test(next.trim());
-    if (isExplicitCta && nextIsSocialLink) {
+    if ((isExplicitCta || isAdLine(line)) && nextIsSocialLink) {
       i++; // Drop the associated invitation link together with its explicit CTA.
       continue;
     }
@@ -635,13 +635,14 @@ async function runAI(chatId, style) {
     const result = cleanText(await aiFormat(user.text, style));
     if (!result) throw new Error("AI没有返回可用文字");
 
-    user.text = result;
-    users.set(chatId, user);
-
-    await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
     const visualStyle = style === "自动判断"
       ? user.style
       : (Object.keys(styles).find(name => name.includes(style)) || user.style);
+    user.text = result;
+    user.lastFormatMode = visualStyle;
+    users.set(chatId, user);
+
+    await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
     await sendFormattedText(chatId, result, visualStyle);
   } catch (err) {
     console.error("AI error:", err);
@@ -690,6 +691,8 @@ bot.on("callback_query", async query => {
       await bot.answerCallbackQuery(query.id, { text: "已切换：" + user.style });
 
       if (user.text) {
+        user.lastFormatMode = user.style;
+        users.set(chatId, user);
         await sendFormattedText(chatId, user.text, user.style);
       } else {
         await bot.sendMessage(chatId, "🎨 已选择「" + user.style + "」\n\n现在发送需要排版的文字即可。", mainKeyboard());
@@ -727,6 +730,7 @@ bot.on("message", async msg => {
 
     const cleaned = simplifyText(user.text);
     user.text = cleaned;
+    user.lastFormatMode = "🖤 极简风";
     users.set(chatId, user);
 
     if (!cleaned) {
