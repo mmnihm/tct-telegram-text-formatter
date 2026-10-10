@@ -22,7 +22,8 @@ const styles = {
   "🔥 宣传风": { icon: "🔥", divider: true },
   "📋 信息风": { icon: "📋", divider: true },
   "🌸 可爱风": { icon: "🌸", divider: false },
-  "🖤 极简风": { icon: "", divider: false }
+  "🖤 极简风": { icon: "", divider: false },
+  "📢 频道发布风": { icon: "📢", divider: true }
 };
 
 function getUser(chatId) {
@@ -147,6 +148,8 @@ function formatSmart(raw, styleName) {
   let text = cleanText(raw);
   if (!text) return "";
 
+  if (styleName === "📢 频道发布风") return formatChannelPost(text);
+
   text = text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
   const output = [];
   let firstContent = true;
@@ -184,6 +187,55 @@ function formatSmart(raw, styleName) {
   let result = output.join("\n");
   if (style.divider && result) result = "━━━━━━━━━━━━━━\n" + result + "\n━━━━━━━━━━━━━━";
   return result;
+}
+
+function formatChannelPost(raw) {
+  const lines = cleanText(raw).split("\n");
+  const output = [];
+  let titleUsed = false;
+  let previousWasBlank = true;
+
+  for (const original of lines) {
+    const line = original.trim();
+    if (!line) {
+      if (output.length && !previousWasBlank) output.push("");
+      previousWasBlank = true;
+      continue;
+    }
+
+    if (isDivider(line)) {
+      if (output.length && output[output.length - 1] !== "") output.push("");
+      output.push("━━━━━━━━━━━━━━", "");
+      previousWasBlank = true;
+      continue;
+    }
+
+    if (!titleUsed) {
+      output.push("<b>📢 " + escapeHtml(line.replace(/^📢\s*/, "")) + "</b>", "", "━━━━━━━━━━━━━━");
+      titleUsed = true;
+      previousWasBlank = false;
+      continue;
+    }
+
+    if (isHeading(line)) {
+      if (output.length && output[output.length - 1] !== "") output.push("");
+      output.push("▌ <b>" + escapeHtml(line.replace(/^[▸▪️•\-]+\s*/, "")) + "</b>");
+      previousWasBlank = false;
+    } else if (/^(?:[-*•▪️▸]|\d+[.)、])\s*/.test(line)) {
+      output.push("　" + escapeHtml(line));
+      previousWasBlank = false;
+    } else if (isImportant(line)) {
+      output.push("<b>" + escapeHtml(line) + "</b>");
+      previousWasBlank = false;
+    } else {
+      output.push(escapeHtml(line));
+      previousWasBlank = false;
+    }
+  }
+
+  while (output.length && output[output.length - 1] === "") output.pop();
+  if (!titleUsed) return "";
+  return output.join("\n") + "\n━━━━━━━━━━━━━━";
 }
 
 function splitTextSafely(raw, maxLength = OUTPUT_CHUNK_SIZE) {
@@ -267,7 +319,8 @@ function aiKeyboard() {
         [{ text: "🤖 AI智能排版当前文字", callback_data: "ai:current" }],
         [{ text: "💎 AI排版 + 高级风", callback_data: "ai:高级风" }],
         [{ text: "🔥 AI排版 + 宣传风", callback_data: "ai:宣传风" }],
-        [{ text: "📋 AI排版 + 信息风", callback_data: "ai:信息风" }]
+        [{ text: "📋 AI排版 + 信息风", callback_data: "ai:信息风" }],
+        [{ text: "📢 AI排版 + 频道发布风", callback_data: "ai:频道发布风" }]
       ]
     }
   };
@@ -280,7 +333,9 @@ async function aiFormat(text, style = "自动判断") {
 
   const styleRule = style === "自动判断"
     ? "根据内容自动选择合适的排版结构。"
-    : "采用" + style + "的视觉风格。";
+    : style === "频道发布风"
+      ? "采用 Telegram 频道发布风格：提炼但不改写原意的醒目标题，段落清晰，必要时使用小标题、列表和简洁分隔线；适合手机阅读。不要擅自添加关注、点赞、转发等引导语，不得编造原文没有的信息。只输出整理后的正文。"
+      : "采用" + style + "的视觉风格。";
 
   const prompt = [
     "你是中文 Telegram 文字排版助手。",
