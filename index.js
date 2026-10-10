@@ -34,7 +34,7 @@ function getUser(chatId) {
       const oldestChatId = users.keys().next().value;
       if (oldestChatId !== undefined) users.delete(oldestChatId);
     }
-    user = { style: "✨ 简洁风", text: "" };
+    user = { style: "✨ 简洁风", text: "", nextFormatMode: null, lastFormatMode: null };
     users.set(chatId, user);
   }
   return user;
@@ -197,6 +197,7 @@ function formatSmart(raw, styleName) {
   let text = cleanText(raw);
   if (!text) return "";
 
+  if (styleName === "🗂️ 论坛原帖风") return formatForumPost(text);
   if (styleName === "📢 频道发布风") return formatChannelPost(text);
 
   text = text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
@@ -285,6 +286,67 @@ function formatChannelPost(raw) {
   while (output.length && output[output.length - 1] === "") output.pop();
   if (!titleUsed) return "";
   return output.join("\n") + "\n━━━━━━━━━━━━━━";
+}
+
+
+function formatForumPost(raw) {
+  const lines = cleanText(raw).split("\n");
+  const output = [];
+  let titleSeen = false;
+  let previousBlank = true;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    if (!line) {
+      if (output.length && !previousBlank && output[output.length - 1] !== "━━━━━━━━━━━━━━") {
+        output.push("");
+      }
+      previousBlank = true;
+      continue;
+    }
+
+    if (isDivider(line)) {
+      if (output.length && output[output.length - 1] !== "") output.push("");
+      if (output[output.length - 1] !== "━━━━━━━━━━━━━━") output.push("━━━━━━━━━━━━━━");
+      output.push("");
+      previousBlank = true;
+      continue;
+    }
+
+    if (!titleSeen) {
+      output.push("<b>" + escapeHtml(line) + "</b>");
+      titleSeen = true;
+      const nextLine = (lines[i + 1] || "").trim();
+      if (nextLine && !isDivider(nextLine)) output.push("", "━━━━━━━━━━━━━━", "");
+      previousBlank = false;
+      continue;
+    }
+
+    if (/^#.+楼主$/.test(line)) {
+      if (output.length && output[output.length - 1] !== "") output.push("");
+      output.push("<b>" + escapeHtml(line) + "</b>");
+      previousBlank = false;
+      continue;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?$/.test(line)) {
+      output.push("🕒 " + escapeHtml(line));
+      previousBlank = false;
+      continue;
+    }
+
+    output.push(escapeHtml(line));
+    previousBlank = false;
+  }
+
+  while (output.length && output[output.length - 1] === "") output.pop();
+  if (!titleSeen) return "";
+  if (output[output.length - 1] !== "━━━━━━━━━━━━━━") {
+    if (output.length && output[output.length - 1] !== "") output.push("");
+    output.push("━━━━━━━━━━━━━━");
+  }
+  return output.join("\n");
 }
 
 function splitTextSafely(raw, maxLength = OUTPUT_CHUNK_SIZE) {
@@ -549,7 +611,9 @@ bot.on("message", async msg => {
   const user = getUser(chatId);
 
   if (msg.text === "📝 开始排版") {
-    return bot.sendMessage(chatId, "📝 请直接发送需要排版的文字：", mainKeyboard());
+    user.nextFormatMode = "forum";
+    users.set(chatId, user);
+    return bot.sendMessage(chatId, "📝 论坛原帖排版已准备好。请发送原文，我会保留标题、楼主、发布时间和正文段落，不添加图片或额外内容。", mainKeyboard());
   }
 
   if (msg.text === "🧹 投稿净化") {
@@ -581,7 +645,7 @@ bot.on("message", async msg => {
 
   if (msg.text === "🔄 重新排版") {
     if (!user.text) return bot.sendMessage(chatId, "⚠️ 还没有上一条文字，请先发送内容。", mainKeyboard());
-    return sendFormattedText(chatId, user.text, user.style);
+    return sendFormattedText(chatId, user.text, user.lastFormatMode || user.style);
   }
 
   if (msg.text === "ℹ️ 使用帮助") {
@@ -598,7 +662,11 @@ bot.on("message", async msg => {
   if (!user.text) {
     return bot.sendMessage(chatId, "⚠️ 没有检测到有效文字，请重新发送。", mainKeyboard());
   }
-  return sendFormattedText(chatId, user.text, user.style);
+  const formatMode = user.nextFormatMode === "forum" ? "🗂️ 论坛原帖风" : user.style;
+  user.nextFormatMode = null;
+  user.lastFormatMode = formatMode;
+  users.set(chatId, user);
+  return sendFormattedText(chatId, user.text, formatMode);
 });
 
 bot.on("polling_error", err => {
