@@ -665,7 +665,7 @@ bot.on("message", async msg => {
   if (msg.text === "📝 开始排版") {
     user.nextFormatMode = "forum";
     users.set(chatId, user);
-    return bot.sendMessage(chatId, "📝 论坛原帖排版已准备好。请发送原文，我会保留标题、楼主、发布时间和正文段落，不添加图片或额外内容。", mainKeyboard());
+    return bot.sendMessage(chatId, "📝 论坛原帖排版已准备好。请发送原文，我会保留标题、作者姓名、发布时间和正文段落，并删除“楼主”标识，不添加图片或额外内容。", mainKeyboard());
   }
 
   if (msg.text === "🧹 投稿净化") {
