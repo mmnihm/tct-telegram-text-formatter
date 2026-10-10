@@ -290,63 +290,114 @@ function formatChannelPost(raw) {
 }
 
 
+function makeForumTags(title, lines) {
+  const stopWords = new Set([
+    "这个", "那个", "一个", "一些", "我们", "他们", "然后", "就是", "真的", "可以",
+    "内容", "分享", "标题", "原帖", "求助", "大家", "今天", "现在", "本人", "作者"
+  ]);
+  const candidates = [];
+  const add = value => {
+    const tag = String(value || "")
+      .replace(/^#+/, "")
+      .replace(/[^\p{Script=Han}A-Za-z0-9]/gu, "")
+      .trim();
+    if (tag.length >= 2 && tag.length <= 12 && !stopWords.has(tag) && !candidates.includes(tag)) {
+      candidates.push(tag);
+    }
+  };
+
+  // Reuse meaningful existing hashtags first, if the source already has them.
+  const sourceText = [title, ...lines.slice(1, 8)].join("\n");
+  for (const match of sourceText.matchAll(/#([\p{Script=Han}A-Za-z0-9]{2,12})/gu)) add(match[1]);
+
+  // Prefer title phrases, then meaningful terms from the body.
+  for (const part of title.split(/[，。！？!?、：:｜|\/\s\-—_【】\[\]()（）]+/)) add(part);
+  const bodyText = lines.slice(1, 12)
+    .filter(line => !/楼主/.test(line) && !/^\d{4}-\d{2}-\d{2}/.test(line) && !isDivider(line))
+    .join(" ");
+  for (const match of (title + " " + bodyText).matchAll(/[\p{Script=Han}]{2,6}|[A-Za-z][A-Za-z0-9]{1,11}|\d{2,}/gu)) {
+    add(match[0]);
+    if (candidates.length >= 4) break;
+  }
+
+  // If the title is one long Chinese phrase, use short title fragments rather than inventing topics.
+  if (candidates.length < 3) {
+    const compactTitle = title.replace(/[^\p{Script=Han}A-Za-z0-9]/gu, "");
+    for (let i = 0; i < compactTitle.length && candidates.length < 3; i += 3) {
+      add(compactTitle.slice(i, i + 6));
+    }
+  }
+
+  return candidates.slice(0, 4).map(tag => "#" + tag).join(" ");
+}
+
 function formatForumPost(raw) {
   const lines = cleanText(raw).split("\n");
-  const output = [];
-  let titleSeen = false;
-  let previousBlank = true;
+  const titleIndex = lines.findIndex(line => line.trim() && !isDivider(line.trim()));
+  if (titleIndex < 0) return "";
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+  const title = lines[titleIndex].trim();
+  const contentLines = lines.slice(titleIndex + 1);
+  const tags = makeForumTags(title, contentLines);
+  const output = ["<b>" + escapeHtml(title) + "</b>"];
+  if (tags) output.push(tags);
 
-    if (!line) {
-      if (output.length && !previousBlank && output[output.length - 1] !== "━━━━━━━━━━━━━━") {
-        output.push("");
+  const body = [];
+  let authorAdded = false;
+  let dateAdded = false;
+
+  for (const original of contentLines) {
+    const line = original.trim();
+    if (!line || isDivider(line)) {
+      if (body.length && body[body.length - 1] !== "") body.push("");
+      continue;
+    }
+
+    // Drop source hashtag-only lines because the normalized tags are placed under the title.
+    if (/^(?:#[\p{Script=Han}A-Za-z0-9]{2,12}\s*)+$/u.test(line)) continue;
+
+    // Keep the author's name, but remove the forum role label "楼主".
+    if (/楼主/.test(line)) {
+      const author = line
+        .replace(/楼主/g, "")
+        .replace(/^[#＃\s]+/, "")
+        .replace(/^(?:作者|发布者|用户)\s*[:：]\s*/, "")
+        .replace(/[|｜·•]+/g, " ")
+        .trim();
+      if (author && !authorAdded) {
+        body.push("👤 作者：" + escapeHtml(author));
+        authorAdded = true;
       }
-      previousBlank = true;
       continue;
     }
 
-    if (isDivider(line)) {
-      if (output.length && output[output.length - 1] !== "") output.push("");
-      if (output[output.length - 1] !== "━━━━━━━━━━━━━━") output.push("━━━━━━━━━━━━━━");
-      output.push("");
-      previousBlank = true;
+    const dateMatch = line.match(/(?:发布时间\s*[:：]?\s*)?(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)/);
+    if (dateMatch) {
+      if (!dateAdded) {
+        body.push("🕒 发布时间：" + escapeHtml(dateMatch[1].replace("T", " ")));
+        dateAdded = true;
+      } else {
+        body.push(escapeHtml(line));
+      }
       continue;
     }
 
-    if (!titleSeen) {
-      output.push("<b>" + escapeHtml(line) + "</b>");
-      titleSeen = true;
-      const nextLine = (lines[i + 1] || "").trim();
-      if (nextLine && !isDivider(nextLine)) output.push("", "━━━━━━━━━━━━━━", "");
-      previousBlank = false;
+    // Also normalize explicit author metadata that does not include the forum role label.
+    const explicitAuthor = line.match(/^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/);
+    if (explicitAuthor && !authorAdded) {
+      body.push("👤 作者：" + escapeHtml(explicitAuthor[1].trim()));
+      authorAdded = true;
       continue;
     }
 
-    if (/^#.+楼主$/.test(line)) {
-      if (output.length && output[output.length - 1] !== "") output.push("");
-      output.push("<b>" + escapeHtml(line) + "</b>");
-      previousBlank = false;
-      continue;
-    }
-
-    if (/^\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?$/.test(line)) {
-      output.push("🕒 " + escapeHtml(line));
-      previousBlank = false;
-      continue;
-    }
-
-    output.push(escapeHtml(line));
-    previousBlank = false;
+    body.push(escapeHtml(line));
   }
 
-  while (output.length && output[output.length - 1] === "") output.pop();
-  if (!titleSeen) return "";
-  if (output[output.length - 1] !== "━━━━━━━━━━━━━━") {
-    if (output.length && output[output.length - 1] !== "") output.push("");
-    output.push("━━━━━━━━━━━━━━");
-  }
+  while (body.length && body[0] === "") body.shift();
+  while (body.length && body[body.length - 1] === "") body.pop();
+
+  if (body.length) output.push("", "━━━━━━━━━━━━━━", "", ...body);
+  output.push("", "━━━━━━━━━━━━━━");
   return output.join("\n");
 }
 
