@@ -14,7 +14,7 @@ const bot = new TelegramBot(token, { polling: true });
 const users = new Map();
 const aiBusy = new Set();
 const MAX_CACHED_USERS = 5000;
-const OUTPUT_CHUNK_SIZE = 3000;
+const OUTPUT_CHUNK_SIZE = 1000;
 
 const styles = {
   "✨ 简洁风": { icon: "✨", divider: false },
