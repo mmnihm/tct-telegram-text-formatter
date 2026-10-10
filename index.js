@@ -44,8 +44,10 @@ function cleanText(raw) {
   return String(raw || "")
     // Remove the common invisible replacement/object placeholder character.
     .replace(/[\uFFFC\uFFFD]/g, "")
-    // Remove zero-width and byte-order-mark characters.
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    // Remove zero-width, byte-order-mark, word-joiner, soft-hyphen, and bidi control characters.
+    .replace(/[\u00AD\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, "")
+    // Normalize full-width spaces, then remove other C0 control characters while preserving tabs and newlines.
+    .replace(/\u3000/g, " ")
     // Remove other C0 control characters while preserving tabs and newlines.
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     // Normalize line endings.
@@ -58,27 +60,55 @@ function cleanText(raw) {
 }
 
 const AD_PATTERNS = [
-  /^(?:查看|看看|浏览|阅读|进入|点击|跳转).{0,12}(?:其他|更多|以前|历史|上一篇|下一篇).{0,12}(?:投稿|文章|作品|内容)/i,
-  /^(?:更多|其他|以前|历史).{0,12}(?:投稿|文章|作品|内容).{0,12}(?:请|可|欢迎|点击|进入)/i,
-  /^(?:欢迎|记得|可以|请).{0,12}(?:关注|订阅|收藏|加我|联系我)/i,
-  /^(?:关注|订阅|收藏).{0,16}(?:我|作者|主页|频道|账号)/i,
-  /^(?:点击|进入|查看|打开).{0,20}(?:链接|主页|频道|群组|个人主页)/i,
-  /^(?:更多精彩|更多内容|持续更新|后续更新|还有更多)/i,
-  /^(?:想看更多|想看其他|想了解更多).{0,20}(?:投稿|内容|作品|文章)/i,
-  /^(?:我的|本人).{0,12}(?:其他投稿|其他作品|更多内容|主页|频道)/i
+  /^(?:查看|看看|浏览|阅读|进入|点击|跳转).{0,18}(?:其他|更多|以前|历史|上一篇|下一篇).{0,18}(?:投稿|文章|作品|内容)/i,
+  /^(?:更多|其他|以前|历史).{0,18}(?:投稿|文章|作品|内容).{0,18}(?:请|可|欢迎|点击|进入)/i,
+  /^(?:欢迎|记得|可以|请|别忘了).{0,18}(?:关注|订阅|收藏|加我|联系我|私信|进群)/i,
+  /^(?:关注|订阅|收藏).{0,20}(?:我|作者|主页|频道|账号|备用号)/i,
+  /^(?:点击|进入|查看|打开|复制|长按).{0,24}(?:链接|主页|频道|群组|个人主页|电报|飞机|网盘|下载页)/i,
+  /^(?:更多精彩|更多内容|持续更新|后续更新|还有更多|每日更新|防失联|备用频道|最新地址)/i,
+  /^(?:想看更多|想看其他|想了解更多).{0,24}(?:投稿|内容|作品|文章)/i,
+  /^(?:我的|本人).{0,16}(?:其他投稿|其他作品|更多内容|主页|频道|账号)/i,
+  /^(?:进群|加群|入群|加好友|私聊|私信|联系管理员|商务合作|广告合作)\s*[:：!！👉➡️\s]/i,
+  /^(?:群满|防封|防失联|最新地址|新地址|永久地址|回家地址|点击直达)\s*[:：!！👉➡️\s]/i,
+  /^(?:tg|电报|飞机|频道|群组)\s*(?:搜索|搜|关注|订阅|加入|进群)\s*[:：]/i
 ];
 
+function normalizeAdProbe(raw) {
+  return String(raw || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    // Detection-only normalization: make obfuscated promotional wording easier to spot.
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, "")
+    .replace(/[\\s·•.。_—–-]+/g, "");
+}
+
 function isAdLine(line) {
-  const s = String(line || "").trim();
+  const s = cleanText(line);
   if (!s) return false;
+  const probe = normalizeAdProbe(s);
+
   if (AD_PATTERNS.some(pattern => pattern.test(s))) return true;
 
-  // Remove obvious standalone promotional links/usernames when attached to ad wording.
-  if (/(?:投稿|作品|内容|主页|频道|关注|订阅|查看更多|更多)/.test(s)
-      && /(?:https?:\/\/|t\.me\/|@[A-Za-z0-9_]{3,})/.test(s)) {
-    return true;
+  // Common promotion / traffic-driving language, checked after removing spacing and decoration.
+  const promoPhrases = [
+    "关注频道", "订阅频道", "进群获取", "加群获取", "私信获取",
+    "点击链接", "点击进群", "点击加入", "更多精彩内容", "持续更新中",
+    "最新地址", "备用频道", "防失联", "广告合作", "商务合作",
+    "免费领取", "扫码添加", "加我获取", "联系管理员获取"
+  ];
+  if (promoPhrases.some(phrase => probe.includes(normalizeAdProbe(phrase)))) return true;
+
+  const hasUrlOrHandle = /(?:https?:\/\/|www\.|t\.me\/|telegram\.me\/|@[A-Za-z0-9_]{3,})/i.test(s);
+  const hasPromotionContext = /(?:投稿|作品|内容|主页|频道|关注|订阅|查看更多|更多|进群|加群|私信|联系|领取|下载|推广|广告|商务|备用|防失联|最新地址)/i.test(s);
+  if (hasUrlOrHandle && hasPromotionContext) return true;
+
+  // A link-only line is removed only when it is clearly a social/group invitation.
+  if (/^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/[A-Za-z0-9_+/?=-]+\s*$/i.test(s)) {
+    return false; // preserve bare links unless the surrounding context clearly identifies an ad
   }
 
+  // Strip standalone account/link labels only when explicitly promotional.
+  if (/^(?:投稿邮箱|投稿方式|商务合作|广告投放|推广联系|加群方式|备用频道|引流群)\s*[:：]/i.test(s)) return true;
   return false;
 }
 
@@ -86,10 +116,28 @@ function removeAdContent(raw) {
   const text = cleanText(raw);
   if (!text) return "";
 
-  const kept = text
-    .split("\n")
-    .filter(line => !isAdLine(line));
+  const lines = text.split("\n");
+  const kept = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = lines[i + 1] || "";
+    const previous = kept.length ? kept[kept.length - 1] : "";
 
+    // If an explicit CTA introduces a link on the next line, remove both together.
+    const isExplicitCta = /(?:点击|进入|加入|关注|订阅|私信|联系|加群|进群|扫码|领取).{0,20}(?:链接|频道|群|主页|账号|获取|联系|下载)/i.test(line);
+    const nextIsSocialLink = /^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/[A-Za-z0-9_+/?=-]+\s*$/i.test(next.trim());
+    if (isExplicitCta && nextIsSocialLink) {
+      continue;
+    }
+
+    // A bare social link is removed only if its adjacent line is an explicit promotion.
+    const currentIsSocialLink = /^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/[A-Za-z0-9_+/?=-]+\s*$/i.test(line.trim());
+    if (currentIsSocialLink && /(?:点击|加入|关注|订阅|进群|加群|备用频道|防失联|最新地址)/i.test(previous)) {
+      continue;
+    }
+
+    if (!isAdLine(line)) kept.push(line);
+  }
   return cleanText(kept.join("\n"));
 }
 
