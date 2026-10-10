@@ -1,5 +1,6 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
+const http = require("http");
 
 const token = process.env.BOT_TOKEN;
 const openrouterKey = process.env.OPENROUTER_API_KEY;
@@ -671,6 +672,34 @@ bot.on("message", async msg => {
 
 bot.on("polling_error", err => {
   console.error("Polling error:", err.message);
+});
+
+
+const port = Number(process.env.PORT || 3000);
+const healthServer = http.createServer((req, res) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8", "Allow": "GET, HEAD" });
+    return res.end("Method Not Allowed");
+  }
+
+  if (req.url === "/" || req.url === "/health" || req.url === "/health/") {
+    res.writeHead(200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store"
+    });
+    return res.end("OK");
+  }
+
+  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+  return res.end("Not Found");
+});
+
+healthServer.on("error", err => {
+  console.error("HTTP health server error:", err.message);
+});
+
+healthServer.listen(port, "0.0.0.0", () => {
+  console.log("🌐 HTTP health server listening on port " + port);
 });
 
 console.log("✅ TCT 文字排版机器人已启动");
