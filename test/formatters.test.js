@@ -4,7 +4,7 @@ const vm = require("node:vm");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const source = fs.readFileSync(path.join(__dirname, "index.js"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "..", "index.js"), "utf8");
 const start = source.indexOf("const styles = {");
 const end = source.indexOf("async function sendFormattedText(", start);
 assert.ok(start >= 0 && end > start, "formatting function block must exist");
