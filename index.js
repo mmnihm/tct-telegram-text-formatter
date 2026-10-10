@@ -127,6 +127,7 @@ function removeAdContent(raw) {
     const isExplicitCta = /(?:点击|进入|加入|关注|订阅|私信|联系|加群|进群|扫码|领取).{0,20}(?:链接|频道|群|主页|账号|获取|联系|下载)/i.test(line);
     const nextIsSocialLink = /^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/[A-Za-z0-9_+/?=-]+\s*$/i.test(next.trim());
     if (isExplicitCta && nextIsSocialLink) {
+      i++; // Drop the associated invitation link together with its explicit CTA.
       continue;
     }
 
