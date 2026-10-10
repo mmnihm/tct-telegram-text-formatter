@@ -12,6 +12,9 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: true });
 const users = new Map();
+const aiBusy = new Set();
+const MAX_CACHED_USERS = 5000;
+const OUTPUT_CHUNK_SIZE = 3000;
 
 const styles = {
   "✨ 简洁风": { icon: "✨", divider: false },
@@ -23,8 +26,16 @@ const styles = {
 };
 
 function getUser(chatId) {
-  const user = users.get(chatId) || { style: "✨ 简洁风", text: "" };
-  users.set(chatId, user);
+  let user = users.get(chatId);
+  if (!user) {
+    // Keep memory bounded if the bot receives messages from many different chats.
+    if (users.size >= MAX_CACHED_USERS) {
+      const oldestChatId = users.keys().next().value;
+      if (oldestChatId !== undefined) users.delete(oldestChatId);
+    }
+    user = { style: "✨ 简洁风", text: "" };
+    users.set(chatId, user);
+  }
   return user;
 }
 
@@ -175,6 +186,57 @@ function formatSmart(raw, styleName) {
   return result;
 }
 
+function splitTextSafely(raw, maxLength = OUTPUT_CHUNK_SIZE) {
+  const text = cleanText(raw);
+  if (!text) return [];
+
+  const chunks = [];
+  let current = "";
+
+  for (const line of text.split("\n")) {
+    // A single very long line must also be split to stay below Telegram's limit.
+    if (Array.from(line).length > maxLength) {
+      if (current) {
+        chunks.push(current);
+        current = "";
+      }
+      const chars = Array.from(line);
+      for (let i = 0; i < chars.length; i += maxLength) {
+        chunks.push(chars.slice(i, i + maxLength).join(""));
+      }
+      continue;
+    }
+
+    const candidate = current ? current + "\n" + line : line;
+    if (Array.from(candidate).length > maxLength) {
+      if (current) chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+async function sendFormattedText(chatId, raw, styleName, keyboard = mainKeyboard()) {
+  const chunks = splitTextSafely(raw);
+  if (!chunks.length) {
+    return bot.sendMessage(chatId, "⚠️ 没有可排版的文字。", keyboard);
+  }
+
+  for (let i = 0; i < chunks.length; i++) {
+    const formatted = formatSmart(chunks[i], styleName);
+    const options = { parse_mode: "HTML" };
+    // Show the main keyboard only once, on the final part of a multi-message result.
+    if (i === chunks.length - 1 && keyboard) {
+      Object.assign(options, keyboard);
+    }
+    await bot.sendMessage(chatId, formatted, options);
+  }
+}
+
 function mainKeyboard() {
   return {
     reply_markup: {
@@ -275,6 +337,11 @@ async function aiFormat(text, style = "自动判断") {
 }
 
 async function runAI(chatId, style) {
+  if (aiBusy.has(chatId)) {
+    await bot.sendMessage(chatId, "⏳ AI正在处理上一条内容，请稍候再试。", mainKeyboard());
+    return;
+  }
+
   const user = getUser(chatId);
 
   if (!user.text) {
@@ -291,36 +358,42 @@ async function runAI(chatId, style) {
     return;
   }
 
-  const wait = await bot.sendMessage(chatId, "🤖 AI正在排版，请稍候…");
-
+  aiBusy.add(chatId);
+  let wait;
   try {
-    const result = await aiFormat(user.text, style);
+    wait = await bot.sendMessage(chatId, "🤖 AI正在排版，请稍候…");
+    const result = cleanText(await aiFormat(user.text, style));
+    if (!result) throw new Error("AI没有返回可用文字");
+
     user.text = result;
     users.set(chatId, user);
 
     await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
-    await bot.sendMessage(chatId, escapeHtml(result), {
-      ...mainKeyboard(),
-      parse_mode: "HTML"
-    });
+    const visualStyle = style === "自动判断"
+      ? user.style
+      : (Object.keys(styles).find(name => name.includes(style)) || user.style);
+    await sendFormattedText(chatId, result, visualStyle);
   } catch (err) {
     console.error("AI error:", err);
-    await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
+    if (wait?.message_id) await bot.deleteMessage(chatId, wait.message_id).catch(() => {});
     await bot.sendMessage(
       chatId,
-      "❌ AI排版失败\n\n原因：" + err.message + "\n\n请检查 OPENROUTER_API_KEY、OPENROUTER_MODEL 和部署日志。",
+      "❌ AI排版失败\n\n原因：" + String(err.message || err).slice(0, 700) + "\n\n请检查 OPENROUTER_API_KEY、OPENROUTER_MODEL 和部署日志。",
       mainKeyboard()
-    );
+    ).catch(() => {});
+  } finally {
+    aiBusy.delete(chatId);
   }
 }
 
 bot.onText(/^\/start$/, msg => {
-  users.set(msg.chat.id, { style: "✨ 简洁风", text: "" });
+  // Do not erase the user's current style or draft when they reopen the menu.
+  getUser(msg.chat.id);
   bot.sendMessage(
     msg.chat.id,
     "👋 欢迎使用文字排版机器人！\n\n直接发送文字即可自动排版，也可以使用 AI 智能排版。\n\n👇 请选择功能：",
     mainKeyboard()
-  );
+  ).catch(err => console.error("Start message error:", err.message));
 });
 
 bot.onText(/^\/help$/, msg => {
@@ -347,10 +420,7 @@ bot.on("callback_query", async query => {
       await bot.answerCallbackQuery(query.id, { text: "已切换：" + user.style });
 
       if (user.text) {
-        await bot.sendMessage(chatId, formatSmart(user.text, user.style), {
-          ...mainKeyboard(),
-          parse_mode: "HTML"
-        });
+        await sendFormattedText(chatId, user.text, user.style);
       } else {
         await bot.sendMessage(chatId, "🎨 已选择「" + user.style + "」\n\n现在发送需要排版的文字即可。", mainKeyboard());
       }
@@ -387,14 +457,10 @@ bot.on("message", async msg => {
     user.text = cleaned;
     users.set(chatId, user);
 
-    return bot.sendMessage(
-      chatId,
-      cleaned ? formatSmart(cleaned, "🖤 极简风") : "⚠️ 清理后没有剩余内容。",
-      {
-        ...mainKeyboard(),
-        parse_mode: "HTML"
-      }
-    );
+    if (!cleaned) {
+      return bot.sendMessage(chatId, "⚠️ 清理后没有剩余内容。", mainKeyboard());
+    }
+    return sendFormattedText(chatId, cleaned, "🖤 极简风");
   }
 
   if (msg.text === "🤖 AI智能排版") {
@@ -411,10 +477,7 @@ bot.on("message", async msg => {
 
   if (msg.text === "🔄 重新排版") {
     if (!user.text) return bot.sendMessage(chatId, "⚠️ 还没有上一条文字，请先发送内容。", mainKeyboard());
-    return bot.sendMessage(chatId, formatSmart(user.text, user.style), {
-      ...mainKeyboard(),
-      parse_mode: "HTML"
-    });
+    return sendFormattedText(chatId, user.text, user.style);
   }
 
   if (msg.text === "ℹ️ 使用帮助") {
@@ -428,10 +491,10 @@ bot.on("message", async msg => {
   user.text = cleanText(msg.text);
   users.set(chatId, user);
 
-  return bot.sendMessage(chatId, formatSmart(msg.text, user.style), {
-    ...mainKeyboard(),
-    parse_mode: "HTML"
-  });
+  if (!user.text) {
+    return bot.sendMessage(chatId, "⚠️ 没有检测到有效文字，请重新发送。", mainKeyboard());
+  }
+  return sendFormattedText(chatId, user.text, user.style);
 });
 
 bot.on("polling_error", err => {
