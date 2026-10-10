@@ -316,11 +316,8 @@ function makeForumTags(title, lines) {
   const titleParts = title.split(/[，。！？!?、：:｜|\/\s\-—_【】\[\]()（）]+/).filter(Boolean);
   for (const part of titleParts) {
     if (part.length <= 12) add(part);
-    else {
-      // Long unseparated titles are split into short fragments, not emitted as one oversized tag.
-      const compact = part.replace(/[^\p{Script=Han}A-Za-z0-9]/gu, "");
-      for (let i = 0; i < compact.length; i += 4) add(compact.slice(i, i + 4));
-    }
+    // Skip long unseparated title fragments; body keywords and existing hashtags
+    // are better than inventing arbitrary chunks of a sentence.
   }
 
   // Use body keywords only after title terms, ignoring metadata and divider lines.
@@ -363,12 +360,11 @@ function formatForumPost(raw) {
 
     // Only treat a line as author metadata when "楼主" is a role suffix,
     // rather than dropping ordinary body sentences that happen to mention 楼主.
-    const authorRole = line.match(/^(?:(?:作者|发布者|用户)\s*[:：]\s*)?(.{1,80}?)\s*(?:[#＃|｜·•]\s*)?楼主\s*$/);
+    const authorRole = line.match(/^#([\p{Script=Han}A-Za-z0-9_.-]{1,40})楼主$/u)
+      || line.match(/^#([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s+楼主$/u)
+      || line.match(/^([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s+楼主$/u);
     if (authorRole) {
-      const author = authorRole[1]
-        .replace(/^[#＃\s]+/, "")
-        .replace(/[|｜·•]+/g, " ")
-        .trim();
+      const author = authorRole[1].replace(/^[#＃\s]+/, "").trim();
       if (author && !authorAdded) {
         body.push("👤 作者：" + escapeHtml(author));
         authorAdded = true;
