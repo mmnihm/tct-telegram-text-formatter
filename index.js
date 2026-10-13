@@ -336,8 +336,12 @@ async function aiFormat(text, style = "自动判断") {
       throw new Error("OpenRouter " + res.status + ": " + errText.slice(0, 200));
     }
     const data = await res.json();
-    const result = data.choices?.[0]?.message?.content?.trim() || "";
-    if (!result) throw new Error("AI 返回空内容");
+    const choice = data.choices?.[0];
+    const result = (choice?.message?.content || choice?.text || "").trim();
+    if (!result) {
+      const reason = choice?.finish_reason || data.error?.message || JSON.stringify(data).slice(0, 180);
+      throw new Error("AI 返回空内容 (" + reason + ")");
+    }
     return result;
   } catch (err) {
     clearTimeout(timeout);
