@@ -262,9 +262,8 @@ function formatForumPost(raw) {
   if (titleIndex < 0) return "";
   const title = lines[titleIndex].trim();
   const contentLines = lines.slice(titleIndex + 1);
-  const tags = makeForumTags(title, contentLines);
+  // 论坛原帖风不再在标题下自动生成标签行，只保留原文标题和正文信息。
   const output = ["<b>" + escapeHtml(title) + "</b>"];
-  if (tags) output.push(tags);
   const body = [];
   let authorAdded = false;
   let dateAdded = false;
