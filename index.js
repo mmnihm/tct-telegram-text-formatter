@@ -128,6 +128,16 @@ function isDivider(line) {
   return /^[-_=—─━]{3,}$/.test(line.trim());
 }
 
+// 统一识别作者行：去掉“楼主”，作者名前只保留一个 #。
+// 只处理明确的作者/楼主格式，避免误删正文里正常出现的“楼主”。
+function normalizeAuthorName(raw) {
+  return String(raw || "").replace(/^[#＃\s]+/, "").replace(/\s*(?:[#＃|｜·•]\s*)?楼主\s*$/, "").replace(/^[#＃\s]+/, "").trim();
+}
+
+function matchAuthorRole(line) {
+  return String(line || "").trim().match(/^[#＃]?([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s*楼主$/u);
+}
+
 function isHeading(line) {
   const s = line.trim();
   if (!s || isDivider(s)) return false;
@@ -172,14 +182,14 @@ function formatChannelPost(raw, template) {
   const title = lines[0].replace(/^【|】$/g, "").replace(/^📢\s*/, "").replace(/^[✨💎🔥📋🌸🖤📢]\s*/, "");
   const skipRe = /^(?:更多|关注|订阅|点赞|转发|分享到|👉|觉得有用|收藏一下|伦理之爱|售价|钻石|￥|¥)/;
   const timeOnlyRe = /^(?:\d{1,2}:\d{2}(?::\d{2})?|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{2})?|发布时间|发布于|日期)\s*[:：]?\s*[\d\-/:年月日\s]*$/;
-  const authorRe = /^(?:#)?([\p{Script=Han}A-Za-z0-9_.\-]{1,40})\s*楼主$/u;
+  const authorRe = /^[#＃]?([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s*楼主$/u;
   const bodyLines = lines.slice(1).filter(l => !isDivider(l) && !skipRe.test(l) && !timeOnlyRe.test(l));
   const points = [];
   let authorTag = "";
   for (const line of bodyLines) {
     const am = line.match(authorRe);
     if (am) {
-      authorTag = "#" + am[1].replace(/^#/, "");
+      authorTag = "👤 #" + normalizeAuthorName(am[1]);
       continue;
     }
     if (points.length >= 3) continue;
@@ -243,10 +253,10 @@ function formatForumPost(raw) {
     const line = original.trim();
     if (!line || isDivider(line)) { if (body.length && body[body.length - 1] !== "") body.push(""); continue; }
     if (/^(?:#[\p{Script=Han}A-Za-z0-9]{2,12}\s*)+$/u.test(line)) continue;
-    const authorRole = line.match(/^#([\p{Script=Han}A-Za-z0-9_.-]{1,40})楼主$/u) || line.match(/^#([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s+楼主$/u) || line.match(/^([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s+楼主$/u);
-    if (authorRole) { const author = authorRole[1].replace(/^[#＃\s]+/, "").trim(); if (author && !authorAdded) { body.push("👤 作者：" + escapeHtml(author)); authorAdded = true; } continue; }
+    const authorRole = matchAuthorRole(line);
+    if (authorRole) { const author = normalizeAuthorName(authorRole[1]); if (author && !authorAdded) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; } continue; }
     const explicitAuthor = line.match(/^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/);
-    if (explicitAuthor && !authorAdded) { const author = explicitAuthor[1].replace(/\s*(?:[#＃|｜·•]\s*)?楼主\s*$/, "").trim(); if (author) { body.push("👤 作者：" + escapeHtml(author)); authorAdded = true; } continue; }
+    if (explicitAuthor && !authorAdded) { const author = normalizeAuthorName(explicitAuthor[1]); if (author) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; } continue; }
     const dateMatch = line.match(/^(?:发布时间|发布于|日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/) || line.match(/^(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/);
     if (dateMatch && !dateAdded) { body.push("🕒 发布时间：" + escapeHtml(dateMatch[1].replace("T", " "))); dateAdded = true; continue; }
     body.push(escapeHtml(line));
