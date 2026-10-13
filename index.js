@@ -34,7 +34,7 @@ function getUser(chatId) {
       const oldestChatId = users.keys().next().value;
       if (oldestChatId !== undefined) users.delete(oldestChatId);
     }
-    user = { style: "✨ 简洁风", text: "", nextFormatMode: null, lastFormatMode: null, aiChat: false, history: [] };
+    user = { style: "✨ 简洁风", text: "", nextFormatMode: null, lastFormatMode: null, aiChat: false, history: [], channelTemplate: null, settingTemplate: false };
     users.set(chatId, user);
   }
   return user;
@@ -139,12 +139,12 @@ function isImportant(line) {
   return /^(视频验证处|出售内容包含)\s*[:：]/.test(s) || /(?:\d+(?:\.\d+)?\s*(?:元|分钟|分|天|小时|GB|MB)|¥\s*\d+(?:\.\d+)?)/.test(s);
 }
 
-function formatSmart(raw, styleName) {
+function formatSmart(raw, styleName, template) {
   const style = styles[styleName] || styles["✨ 简洁风"];
   let text = cleanText(raw);
   if (!text) return "";
   if (styleName === "🗂️ 论坛原帖风") return formatForumPost(text);
-  if (styleName === "📢 频道发布风") return formatChannelPost(text);
+  if (styleName === "📢 频道发布风") return formatChannelPost(text, template);
   text = text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
   const output = [];
   let firstContent = true;
@@ -164,7 +164,7 @@ function formatSmart(raw, styleName) {
   return result;
 }
 
-function formatChannelPost(raw) {
+function formatChannelPost(raw, template) {
   const text = cleanText(raw);
   if (!text) return "";
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
@@ -178,10 +178,14 @@ function formatChannelPost(raw) {
     if (isHeading(line) || isImportant(line) || line.length > 8) points.push(line.replace(/^[▸▪️•\-\d.、]+\s*/, ""));
   }
   if (!points.length && bodyLines.length) points.push(...bodyLines.slice(0, 3));
-  const output = ["<b>" + escapeHtml(title) + "</b>", ""];
-  for (const p of points.slice(0, 3)) output.push("• " + escapeHtml(p));
-  output.push("", "👉 觉得有用就收藏一下");
-  return output.join("\n");
+  const pointsText = points.slice(0, 3).map(p => "• " + escapeHtml(p)).join("\n");
+  const action = "👉 觉得有用就收藏一下";
+  const tpl = (template || "<b>{结论}</b>\n\n{要点}\n\n{行动}").trim();
+  let result = tpl
+    .replace(/\{结论\}/g, escapeHtml(title))
+    .replace(/\{要点\}/g, pointsText || "")
+    .replace(/\{行动\}/g, action);
+  return result.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function makeForumTags(title, lines) {
@@ -267,7 +271,9 @@ function splitFormattedHtml(raw, maxLength = OUTPUT_CHUNK_SIZE) {
 }
 
 async function sendFormattedText(chatId, raw, styleName, keyboard = mainKeyboard()) {
-  const formatted = formatSmart(raw, styleName);
+  const user = getUser(chatId);
+  const tpl = styleName === "📢 频道发布风" ? user.channelTemplate : null;
+  const formatted = formatSmart(raw, styleName, tpl);
   const chunks = splitFormattedHtml(formatted);
   if (!chunks.length) return bot.sendMessage(chatId, "⚠️ 没有可排版的文字。", keyboard);
   for (let i = 0; i < chunks.length; i++) {
@@ -278,7 +284,7 @@ async function sendFormattedText(chatId, raw, styleName, keyboard = mainKeyboard
 }
 
 function mainKeyboard() {
-  return { reply_markup: { keyboard: [[{ text: "📢 频道发布风" }, { text: "📝 开始排版" }], [{ text: "🧹 投稿净化" }, { text: "🎨 排版风格" }], [{ text: "🤖 AI智能排版" }, { text: "🔄 重新排版" }], [{ text: "ℹ️ 使用帮助" }]], resize_keyboard: true } };
+  return { reply_markup: { keyboard: [[{ text: "📢 频道发布风" }, { text: "📝 开始排版" }], [{ text: "🧹 投稿净化" }, { text: "🎨 排版风格" }], [{ text: "🤖 AI智能排版" }, { text: "🔄 重新排版" }], [{ text: "⚙️ 设置频道模板" }, { text: "ℹ️ 使用帮助" }]], resize_keyboard: true } };
 }
 
 function styleKeyboard() {
@@ -433,10 +439,26 @@ bot.on("message", async msg => {
     }
     return;
   }
+  if (msg.text === "⚙️ 设置频道模板") {
+    user.settingTemplate = true;
+    users.set(chatId, user);
+    return bot.sendMessage(chatId, "⚙️ 请发送你的频道模板。\n\n可用占位符：\n• {结论} → 核心结论（自动加粗）\n• {要点} → 最多3个要点\n• {行动} → 行动引导\n\n示例：\n<b>{结论}</b>\n\n{要点}\n\n{行动}\n\n发送「重置」恢复默认。", mainKeyboard());
+  }
+  if (user.settingTemplate) {
+    user.settingTemplate = false;
+    if (msg.text === "重置" || msg.text === "默认") {
+      user.channelTemplate = null;
+      users.set(chatId, user);
+      return bot.sendMessage(chatId, "✅ 已恢复默认模板。", mainKeyboard());
+    }
+    user.channelTemplate = msg.text;
+    users.set(chatId, user);
+    return bot.sendMessage(chatId, "✅ 频道模板已保存。之后使用「📢 频道发布风」将按此模板输出。", mainKeyboard());
+  }
   if (msg.text === "📢 频道发布风") {
     user.style = "📢 频道发布风";
     users.set(chatId, user);
-    if (!user.text) return bot.sendMessage(chatId, "📢 频道发布风已选中。请发送原文，我会提炼核心结论 + 最多 3 个要点，口语化精简输出。", mainKeyboard());
+    if (!user.text) return bot.sendMessage(chatId, "📢 频道发布风已选中。请发送原文，我会按你的模板（或默认）提炼核心结论 + 最多 3 个要点。", mainKeyboard());
     user.lastFormatMode = "📢 频道发布风";
     users.set(chatId, user);
     return sendFormattedText(chatId, user.text, "📢 频道发布风");
