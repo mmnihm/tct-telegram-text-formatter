@@ -181,33 +181,52 @@ function formatChannelPost(raw, template) {
   if (!lines.length) return "";
   const title = lines[0].replace(/^【|】$/g, "").replace(/^📢\s*/, "").replace(/^[✨💎🔥📋🌸🖤📢]\s*/, "");
   const skipRe = /^(?:更多|关注|订阅|点赞|转发|分享到|👉|觉得有用|收藏一下|伦理之爱|售价|钻石|￥|¥)/;
-  const timeOnlyRe = /^(?:\d{1,2}:\d{2}(?::\d{2})?|\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{2})?|发布时间|发布于|日期)\s*[:：]?\s*[\d\-/:年月日\s]*$/;
+  const timeOnlyRe = /^(?:(?:\d{1,2}:\d{2}(?::\d{2})?)|(?:\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{2})?)|发布时间|发布于|日期)\s*[:：]?\s*[\d\-/:年月日\s]*$/;
   const authorRe = /^[#＃]?([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s*楼主$/u;
-  const bodyLines = lines.slice(1).filter(l => !isDivider(l) && !skipRe.test(l) && !timeOnlyRe.test(l));
-  const points = [];
+  const explicitAuthorRe = /^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/;
+  const dateRe = /^(?:(?:发布时间|发布于|日期)\s*[:：]?\s*)?\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/;
+  const statsRe = /^(?:\S{2,30}\s*)?(?:99\+|\d{2,})(?:\s*阅读)?$/;
+  const bodyLines = lines.slice(1).filter(l =>
+    !isDivider(l) &&
+    !skipRe.test(l) &&
+    !timeOnlyRe.test(l) &&
+    !dateRe.test(l) &&
+    !statsRe.test(l) &&
+    !authorRe.test(l) &&
+    !explicitAuthorRe.test(l)
+  );
+
   let authorTag = "";
+  for (const line of lines.slice(1)) {
+    const match = line.match(authorRe);
+    const explicit = line.match(explicitAuthorRe);
+    if (match && !authorTag) authorTag = "👤 #" + normalizeAuthorName(match[1]);
+    else if (explicit && !authorTag) authorTag = "👤 #" + normalizeAuthorName(explicit[1]);
+  }
+
+  // 保留第一段有效介绍，再补充最多两个有价值的要点，避免只抓到标题或统计信息。
+  const candidates = [];
   for (const line of bodyLines) {
-    const am = line.match(authorRe);
-    if (am) {
-      authorTag = "👤 #" + normalizeAuthorName(am[1]);
-      continue;
-    }
-    if (points.length >= 3) continue;
-    if (line.length < 8) continue;
-    if (/^\S{2,20}\+\d+/.test(line) || /售价\s*[:：]?\s*\d/.test(line) || /\d+\.?\d*\s*钻石/.test(line)) continue;
-    if (isHeading(line) || isImportant(line) || line.length > 12) {
-      points.push(line.replace(/^[▸▪️•\-\d.、]+\s*/, ""));
-    }
+    const cleaned = line.replace(/^[▸▪️•\-\d.、]+\s*/, "").trim();
+    if (cleaned.length < 6) continue;
+    if (/^\S{2,20}\+\d+$/.test(cleaned) || /售价\s*[:：]?\s*\d/.test(cleaned) || /\d+\.?\d*\s*钻石/.test(cleaned)) continue;
+    if (candidates.includes(cleaned)) continue;
+    candidates.push(cleaned);
   }
-  if (!points.length && bodyLines.length) {
-    for (const line of bodyLines) {
+  const points = [];
+  // 优先保留原文最前面的介绍，避免被后面的短标签、统计项挤掉。
+  if (candidates.length) points.push(candidates[0]);
+  for (const line of candidates.slice(1)) {
+    if (points.length >= 3) break;
+    if (isHeading(line) || isImportant(line) || line.length >= 12) points.push(line);
+  }
+  if (points.length < 3) {
+    for (const line of candidates.slice(1)) {
       if (points.length >= 3) break;
-      if (authorRe.test(line)) continue;
-      if (line.length >= 8 && !/^\S{2,20}\+\d+/.test(line) && !timeOnlyRe.test(line)) {
-        points.push(line.replace(/^[▸▪️•\-\d.、]+\s*/, ""));
-      }
+      if (!points.includes(line)) points.push(line);
     }
   }
+
   const pointsText = points.slice(0, 3).map(p => "• " + escapeHtml(p)).join("\n");
   const action = "👉 觉得有用就收藏一下";
   const tpl = (template || "<b>{结论}</b>\n\n{要点}\n\n{行动}").trim();
