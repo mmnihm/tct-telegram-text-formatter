@@ -169,15 +169,24 @@ function formatChannelPost(raw, template) {
   if (!text) return "";
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
   if (!lines.length) return "";
-  const title = lines[0].replace(/^【|】$/g, "").replace(/^📢\s*/, "");
-  const bodyLines = lines.slice(1).filter(l => !isDivider(l) && !/^(?:更多|关注|订阅|点赞|转发|分享到)/.test(l));
+  const title = lines[0].replace(/^【|】$/g, "").replace(/^📢\s*/, "").replace(/^[✨💎🔥📋🌸🖤📢]\s*/, "");
+  const skipRe = /^(?:更多|关注|订阅|点赞|转发|分享到|👉|觉得有用|收藏一下|伦理之爱|售价|钻石|￥|¥)/;
+  const bodyLines = lines.slice(1).filter(l => !isDivider(l) && !skipRe.test(l));
   const points = [];
   for (const line of bodyLines) {
     if (points.length >= 3) break;
-    if (line.length < 4) continue;
-    if (isHeading(line) || isImportant(line) || line.length > 8) points.push(line.replace(/^[▸▪️•\-\d.、]+\s*/, ""));
+    if (line.length < 6) continue;
+    if (/^\S{2,20}\+\d+/.test(line) || /售价\s*[:：]?\s*\d/.test(line) || /\d+\.?\d*\s*钻石/.test(line)) continue;
+    if (isHeading(line) || isImportant(line) || line.length > 10) {
+      points.push(line.replace(/^[▸▪️•\-\d.、]+\s*/, ""));
+    }
   }
-  if (!points.length && bodyLines.length) points.push(...bodyLines.slice(0, 3));
+  if (!points.length && bodyLines.length) {
+    for (const line of bodyLines) {
+      if (points.length >= 3) break;
+      if (line.length >= 6 && !/^\S{2,20}\+\d+/.test(line)) points.push(line.replace(/^[▸▪️•\-\d.、]+\s*/, ""));
+    }
+  }
   const pointsText = points.slice(0, 3).map(p => "• " + escapeHtml(p)).join("\n");
   const action = "👉 觉得有用就收藏一下";
   const tpl = (template || "<b>{结论}</b>\n\n{要点}\n\n{行动}").trim();
@@ -185,6 +194,7 @@ function formatChannelPost(raw, template) {
     .replace(/\{结论\}/g, escapeHtml(title))
     .replace(/\{要点\}/g, pointsText || "")
     .replace(/\{行动\}/g, action);
+  result = result.replace(/(👉\s*觉得有用就收藏一下\s*)+/g, "👉 觉得有用就收藏一下");
   return result.replace(/\n{3,}/g, "\n\n").trim();
 }
 
