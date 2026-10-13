@@ -185,7 +185,7 @@ function formatChannelPost(raw, template) {
   const authorRe = /^[#＃]?([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s*楼主$/u;
   const explicitAuthorRe = /^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/;
   const dateRe = /^(?:(?:发布时间|发布于|日期)\s*[:：]?\s*)?\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/;
-  const statsRe = /^(?:\S{2,30}\s*)?(?:99\+|\d{2,})(?:\s*阅读)?$/;
+  const statsRe = /^(?:\S{2,24})?(?:99\+\s*)?\d{2,}(?:\s*阅读)?$/;
   const bodyLines = lines.slice(1).filter(l =>
     !isDivider(l) &&
     !skipRe.test(l) &&
