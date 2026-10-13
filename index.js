@@ -171,7 +171,7 @@ function simplifyText(raw) {
 }
 
 function escapeHtml(text) {
-  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(text).replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 }
 
 function isDivider(line) {
@@ -520,9 +520,12 @@ function mainKeyboard() {
 function styleKeyboard() {
   return {
     reply_markup: {
-      inline_keyboard: Object.keys(styles).map(name => [
-        { text: name, callback_data: "style:" + name }
-      ])
+      inline_keyboard: [
+        [{ text: "✨ 简洁风", callback_data: "style:✨ 简洁风" }, { text: "💎 高级风", callback_data: "style:💎 高级风" }],
+        [{ text: "🔥 宣传风", callback_data: "style:🔥 宣传风" }, { text: "📋 信息风", callback_data: "style:📋 信息风" }],
+        [{ text: "🌸 可爱风", callback_data: "style:🌸 可爱风" }, { text: "🖤 极简风", callback_data: "style:🖤 极简风" }],
+        [{ text: "📢 频道发布风", callback_data: "style:📢 频道发布风" }]
+      ]
     }
   };
 }
@@ -531,11 +534,9 @@ function aiKeyboard() {
   return {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "🤖 AI智能排版当前文字", callback_data: "ai:current" }],
-        [{ text: "💎 AI排版 + 高级风", callback_data: "ai:高级风" }],
-        [{ text: "🔥 AI排版 + 宣传风", callback_data: "ai:宣传风" }],
-        [{ text: "📋 AI排版 + 信息风", callback_data: "ai:信息风" }],
-        [{ text: "📢 AI排版 + 频道发布风", callback_data: "ai:频道发布风" }]
+        [{ text: "自动判断", callback_data: "ai:自动判断" }],
+        [{ text: "频道发布风", callback_data: "ai:频道发布风" }],
+        [{ text: "使用当前风格", callback_data: "ai:current" }]
       ]
     }
   };
@@ -566,7 +567,7 @@ async function aiFormat(text, style = "自动判断") {
   ].join("\n");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  const timer = setTimeout(() => controller.abort(), 90000);
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -685,7 +686,7 @@ bot.on("callback_query", async query => {
     if (data.startsWith("style:")) {
       const style = data.slice(6);
       const user = getUser(chatId);
-      user.style = styles[style] ? style : "✨ 简洁风";
+      user.style = styles[style] ? style : user.style;
       users.set(chatId, user);
 
       await bot.answerCallbackQuery(query.id, { text: "已切换：" + user.style });
