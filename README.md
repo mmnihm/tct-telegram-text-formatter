@@ -42,7 +42,7 @@ npm run check
 AI 功能可选配置：
 
 - `OPENROUTER_API_KEY`：OpenRouter API Key。未配置时，普通排版、风格切换、重新排版和投稿净化仍可使用。
-- `OPENROUTER_MODEL`：可选模型 ID；未配置时默认使用 `openrouter/free`。可用模型取决于 OpenRouter 当前提供情况。
+- `OPENROUTER_MODEL`：可选模型 ID；未配置时默认使用 OpenRouter 的免费 Venice Uncensored 模型 `cognitivecomputations/dolphin-mistral-24b-venice-edition:free`。免费模型可能有请求频率限制或临时不可用；也可通过此变量切换其他可用模型。
 
 > 本项目当前不使用数据库。用户最近的文字和所选风格仅保存在进程内存中，机器人重启后会重置；不要把机器人当作持久化草稿存储工具。仓库中不应提交真实 Token 或 API Key。
 
