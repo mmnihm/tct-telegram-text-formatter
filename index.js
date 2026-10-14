@@ -4,7 +4,10 @@ const http = require("http");
 
 const token = process.env.BOT_TOKEN;
 const openrouterKey = process.env.OPENROUTER_API_KEY;
-const openrouterModel = process.env.OPENROUTER_MODEL || "openrouter/free";
+const configuredOpenrouterModel = String(process.env.OPENROUTER_MODEL || "").trim();
+const openrouterModel = !configuredOpenrouterModel || configuredOpenrouterModel === "openrouter/free"
+  ? "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
+  : configuredOpenrouterModel;
 
 if (!token) {
   console.error("❌ 未找到 BOT_TOKEN");
