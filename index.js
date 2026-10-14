@@ -4,7 +4,7 @@ const http = require("http");
 
 const token = process.env.BOT_TOKEN;
 const openrouterKey = process.env.OPENROUTER_API_KEY;
-const openrouterModel = process.env.OPENROUTER_MODEL || "openrouter/free";
+const openrouterModel = process.env.OPENROUTER_MODEL || "cognitivecomputations/dolphin-mistral-24b-venice-edition:free";
 
 if (!token) {
   console.error("❌ 未找到 BOT_TOKEN");
@@ -476,7 +476,10 @@ bot.on("message", async msg => {
         },
         body: JSON.stringify({ model: openrouterModel, messages, temperature: 0.3, max_tokens: 2000 })
       });
-      if (!res.ok) throw new Error("OpenRouter " + res.status);
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error("OpenRouter " + res.status + ": " + errText.slice(0, 200));
+      }
       const data = await res.json();
       const reply = data.choices?.[0]?.message?.content?.trim() || "";
       user.history.push({ role: "assistant", content: reply });
