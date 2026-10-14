@@ -33,7 +33,8 @@ test("forum output puts tags below the title and keeps publication metadata", ()
     "正文内容保留。"
   ].join("\n"));
   assert.match(output, /^<b>测试标题<\/b>\n#[^\n]+/);
-  assert.match(output, /作者：张三/);
+  assert.match(output, /👤 #张三/);
+  assert.doesNotMatch(output, /作者：张三/);
   assert.doesNotMatch(output, /张三 楼主/);
   assert.match(output, /发布时间：2026-10-11 12:30/);
   assert.match(output, /活动时间：2026-10-12/);
@@ -57,6 +58,6 @@ test("long forum posts are formatted once before being split", () => {
   const chunks = f.splitFormattedHtml(formatted);
   assert.ok(chunks.length > 1, "long output should be split into multiple messages");
   assert.equal(chunks.join("").match(/<b>长帖标题<\/b>/g)?.length, 1);
-  assert.equal(chunks.join("").match(/作者：张三/g)?.length, 1);
+  assert.equal(chunks.join("").match(/👤 #张三/g)?.length, 1);
   assert.ok(chunks.every(chunk => chunk.length < 1100));
 });

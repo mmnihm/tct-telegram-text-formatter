@@ -1,13 +1,9 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const http = require("http");
+const { requestAI } = require("./ai-provider");
 
 const token = process.env.BOT_TOKEN;
-const openrouterKey = process.env.OPENROUTER_API_KEY;
-const configuredOpenrouterModel = String(process.env.OPENROUTER_MODEL || "").trim();
-const openrouterModel = !configuredOpenrouterModel || configuredOpenrouterModel === "openrouter/free"
-  ? "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
-  : configuredOpenrouterModel;
 
 if (!token) {
   console.error("❌ 未找到 BOT_TOKEN");
@@ -265,8 +261,9 @@ function formatForumPost(raw) {
   if (titleIndex < 0) return "";
   const title = lines[titleIndex].trim();
   const contentLines = lines.slice(titleIndex + 1);
-  // 论坛原帖风不再在标题下自动生成标签行，只保留原文标题和正文信息。
+  const tags = makeForumTags(title, contentLines);
   const output = ["<b>" + escapeHtml(title) + "</b>"];
+  if (tags) output.push(escapeHtml(tags));
   const body = [];
   let authorAdded = false;
   let dateAdded = false;
@@ -275,9 +272,17 @@ function formatForumPost(raw) {
     if (!line || isDivider(line)) { if (body.length && body[body.length - 1] !== "") body.push(""); continue; }
     if (/^(?:#[\p{Script=Han}A-Za-z0-9]{2,12}\s*)+$/u.test(line)) continue;
     const authorRole = matchAuthorRole(line);
-    if (authorRole) { const author = normalizeAuthorName(authorRole[1]); if (author && !authorAdded) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; } continue; }
+    if (authorRole) {
+      const author = normalizeAuthorName(authorRole[1]);
+      if (author && !authorAdded) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; }
+      continue;
+    }
     const explicitAuthor = line.match(/^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/);
-    if (explicitAuthor && !authorAdded) { const author = normalizeAuthorName(explicitAuthor[1]); if (author) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; } continue; }
+    if (explicitAuthor) {
+      const author = normalizeAuthorName(explicitAuthor[1]);
+      if (author && !authorAdded) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; }
+      continue;
+    }
     const dateMatch = line.match(/^(?:发布时间|发布于|日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/) || line.match(/^(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/);
     if (dateMatch && !dateAdded) { body.push("🕒 发布时间：" + escapeHtml(dateMatch[1].replace("T", " "))); dateAdded = true; continue; }
     body.push(escapeHtml(line));
@@ -352,7 +357,6 @@ function aiChatKeyboard() {
 }
 
 async function aiFormat(text, style = "自动判断") {
-  if (!openrouterKey) throw new Error("未配置 OPENROUTER_API_KEY");
   const styleRule = style === "自动判断" ? "根据内容自动选择合适的排版结构。" : style === "频道发布风" ? "你是一位 Telegram 频道编辑。把内容改写成适合频道发布的图文消息。要求：1) 提炼 1 个核心结论放在首行并用 **加粗**；2) 正文只保留 3 个以内最有价值的要点，用 • 列出；3) 删除所有客套话和铺垫，直接说重点；4) 语言口语化，像在跟朋友解释；5) 全文控制在 300 字以内；6) 末尾加一句行动引导（如「觉得有用就收藏一下」）；不得编造原文没有的信息，只输出最终文案。" : "采用" + style + "的视觉风格。";
   const prompt = [
     "你是中文 Telegram 文字排版助手。",
@@ -366,42 +370,12 @@ async function aiFormat(text, style = "自动判断") {
     "用户原文：",
     text
   ].join("\n");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + openrouterKey,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/mmnihm/tct-telegram-text-formatter",
-        "X-Title": "TCT Telegram Formatter"
-      },
-      body: JSON.stringify({
-        model: openrouterModel,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-        max_tokens: 2000
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeout);
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error("OpenRouter " + res.status + ": " + errText.slice(0, 200));
-    }
-    const data = await res.json();
-    const choice = data.choices?.[0];
-    const result = (choice?.message?.content || choice?.text || "").trim();
-    if (!result) {
-      const reason = choice?.finish_reason || data.error?.message || JSON.stringify(data).slice(0, 180);
-      throw new Error("AI 返回空内容 (" + reason + ")");
-    }
-    return result;
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
-  }
+  const response = await requestAI([{ role: "user", content: prompt }], {
+    timeoutMs: 60000,
+    temperature: 0.3,
+    maxTokens: 2000
+  });
+  return response.content;
 }
 
 bot.onText(/\/start/, msg => {
@@ -471,17 +445,12 @@ bot.on("message", async msg => {
       user.history.push({ role: "user", content: msg.text });
       if (user.history.length > 10) user.history = user.history.slice(-10);
       const messages = [{ role: "system", content: "你是中文 Telegram 文字排版助手，只整理内容，不改变事实，不编造信息。直接输出排版结果。" }, ...user.history];
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + openrouterKey,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ model: openrouterModel, messages, temperature: 0.3, max_tokens: 2000 })
+      const aiResult = await requestAI(messages, {
+        timeoutMs: 60000,
+        temperature: 0.3,
+        maxTokens: 2000
       });
-      if (!res.ok) throw new Error("OpenRouter " + res.status);
-      const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content?.trim() || "";
+      const reply = aiResult.content;
       user.history.push({ role: "assistant", content: reply });
       users.set(chatId, user);
       await bot.sendMessage(chatId, reply, { parse_mode: "Markdown", ...aiChatKeyboard() });
