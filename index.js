@@ -261,8 +261,9 @@ function formatForumPost(raw) {
   if (titleIndex < 0) return "";
   const title = lines[titleIndex].trim();
   const contentLines = lines.slice(titleIndex + 1);
-  // 论坛原帖风不再在标题下自动生成标签行，只保留原文标题和正文信息。
+  const tags = makeForumTags(title, contentLines);
   const output = ["<b>" + escapeHtml(title) + "</b>"];
+  if (tags) output.push(escapeHtml(tags));
   const body = [];
   let authorAdded = false;
   let dateAdded = false;
@@ -271,9 +272,17 @@ function formatForumPost(raw) {
     if (!line || isDivider(line)) { if (body.length && body[body.length - 1] !== "") body.push(""); continue; }
     if (/^(?:#[\p{Script=Han}A-Za-z0-9]{2,12}\s*)+$/u.test(line)) continue;
     const authorRole = matchAuthorRole(line);
-    if (authorRole) { const author = normalizeAuthorName(authorRole[1]); if (author && !authorAdded) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; } continue; }
+    if (authorRole) {
+      const author = normalizeAuthorName(authorRole[1]);
+      if (author && !authorAdded) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; }
+      continue;
+    }
     const explicitAuthor = line.match(/^(?:作者|发布者|用户)\s*[:：]\s*(.+)$/);
-    if (explicitAuthor && !authorAdded) { const author = normalizeAuthorName(explicitAuthor[1]); if (author) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; } continue; }
+    if (explicitAuthor) {
+      const author = normalizeAuthorName(explicitAuthor[1]);
+      if (author && !authorAdded) { body.push("👤 #" + escapeHtml(author)); authorAdded = true; }
+      continue;
+    }
     const dateMatch = line.match(/^(?:发布时间|发布于|日期)\s*[:：]?\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/) || line.match(/^(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/);
     if (dateMatch && !dateAdded) { body.push("🕒 发布时间：" + escapeHtml(dateMatch[1].replace("T", " "))); dateAdded = true; continue; }
     body.push(escapeHtml(line));
