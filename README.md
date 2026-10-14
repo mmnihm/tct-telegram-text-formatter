@@ -41,8 +41,16 @@ npm run check
 
 AI 功能可选配置：
 
-- `OPENROUTER_API_KEY`：OpenRouter API Key。未配置时，普通排版、风格切换、重新排版和投稿净化仍可使用。
-- `OPENROUTER_MODEL`：可选模型 ID；未配置时默认使用 `cognitivecomputations/dolphin-mistral-24b-venice-edition:free`。如果旧环境变量仍为 `openrouter/free`，代码会自动改用此默认模型。免费模型有调用频率限制，暂时不可用时可稍后重试。
+- `AI_PROVIDER`：首选服务商，支持 `auto`、`openrouter`、`openai`、`deepseek`、`groq`、`siliconflow`、`custom`。默认 `auto`。
+- `AI_FALLBACK_PROVIDERS`：失败后的备用顺序，逗号分隔。默认 `openrouter,deepseek,openai,groq,siliconflow,custom`。
+- OpenRouter：`OPENROUTER_API_KEY`、可选 `OPENROUTER_MODEL`。默认模型为 `cognitivecomputations/dolphin-mistral-24b-venice-edition:free`；旧值 `openrouter/free` 会自动改用默认模型。
+- OpenAI：`OPENAI_API_KEY`、可选 `OPENAI_MODEL`（默认 `gpt-4o-mini`）、可选 `OPENAI_BASE_URL`。
+- DeepSeek：`DEEPSEEK_API_KEY`、可选 `DEEPSEEK_MODEL`（默认 `deepseek-chat`）、可选 `DEEPSEEK_BASE_URL`。
+- Groq：`GROQ_API_KEY`、可选 `GROQ_MODEL`（默认 `llama-3.3-70b-versatile`）、可选 `GROQ_BASE_URL`。
+- SiliconFlow：`SILICONFLOW_API_KEY`、可选 `SILICONFLOW_MODEL`（默认 `Qwen/Qwen2.5-7B-Instruct`）、可选 `SILICONFLOW_BASE_URL`。
+- 其他 OpenAI 兼容接口：配置 `CUSTOM_AI_API_KEY`、`CUSTOM_AI_MODEL`、`CUSTOM_AI_BASE_URL`。
+
+只会尝试已经配置 API Key、模型和接口地址的服务商。请求失败或超时后，会按备用顺序继续尝试下一家；全部失败时会显示各服务商的错误摘要。各服务商需要独立申请 API Key，是否免费及可用额度由服务商决定。未配置任何 AI 服务商时，普通排版、风格切换、重新排版和投稿净化仍可使用。
 
 > 本项目当前不使用数据库。用户最近的文字和所选风格仅保存在进程内存中，机器人重启后会重置；不要把机器人当作持久化草稿存储工具。仓库中不应提交真实 Token 或 API Key。
 
