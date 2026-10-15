@@ -440,6 +440,7 @@ bot.on("message", async msg => {
       return bot.sendMessage(chatId, "历史已清空。", aiChatKeyboard());
     }
     if (aiBusy.has(chatId)) return bot.sendMessage(chatId, "⏳ AI 正在处理中，请稍候。", aiChatKeyboard());
+    const previousHistory = user.history.slice();
     aiBusy.add(chatId);
     try {
       user.history.push({ role: "user", content: msg.text });
@@ -455,7 +456,10 @@ bot.on("message", async msg => {
       users.set(chatId, user);
       await bot.sendMessage(chatId, reply, { parse_mode: "Markdown", ...aiChatKeyboard() });
     } catch (err) {
-      await bot.sendMessage(chatId, "❌ 对话失败：" + (err.message || String(err)).slice(0, 200), aiChatKeyboard());
+      // Do not keep a failed user turn in the conversation context; it can poison the next retry.
+      user.history = previousHistory;
+      users.set(chatId, user);
+      await bot.sendMessage(chatId, "❌ 对话失败：" + (err.message || String(err)).slice(0, 600), aiChatKeyboard());
     } finally {
       aiBusy.delete(chatId);
     }
