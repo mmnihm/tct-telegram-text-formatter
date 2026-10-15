@@ -43,7 +43,7 @@ AI 功能可选配置：
 
 - `AI_PROVIDER`：首选服务商，支持 `auto`、`openrouter`、`openai`、`deepseek`、`groq`、`siliconflow`、`custom`。默认 `auto`。
 - `AI_FALLBACK_PROVIDERS`：失败后的备用顺序，逗号分隔。默认 `openrouter,deepseek,openai,groq,siliconflow,custom`。
-- OpenRouter：`OPENROUTER_API_KEY`、可选 `OPENROUTER_MODEL`。默认模型为 `cognitivecomputations/dolphin-mistral-24b-venice-edition:free`；旧值 `openrouter/free` 会自动改用默认模型。
+- OpenRouter：`OPENROUTER_API_KEY`、可选 `OPENROUTER_MODEL`。默认直接使用 `openrouter/free` 免费模型路由，不会把它替换成某个具体模型。也可以填模型列表中当前仍可用的完整模型 ID。
 - OpenAI：`OPENAI_API_KEY`、可选 `OPENAI_MODEL`（默认 `gpt-4o-mini`）、可选 `OPENAI_BASE_URL`。
 - DeepSeek：`DEEPSEEK_API_KEY`、可选 `DEEPSEEK_MODEL`（默认 `deepseek-chat`）、可选 `DEEPSEEK_BASE_URL`。
 - Groq：`GROQ_API_KEY`、可选 `GROQ_MODEL`（默认 `llama-3.3-70b-versatile`）、可选 `GROQ_BASE_URL`。
