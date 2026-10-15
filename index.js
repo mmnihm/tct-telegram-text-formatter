@@ -356,6 +356,17 @@ function aiChatKeyboard() {
   return { reply_markup: { keyboard: [[{ text: "🚪 退出对话" }], [{ text: "🔄 清空历史" }]], resize_keyboard: true } };
 }
 
+async function sendAIReply(chatId, reply, keyboard) {
+  try {
+    return await bot.sendMessage(chatId, reply, { parse_mode: "Markdown", ...keyboard });
+  } catch (err) {
+    const message = String(err?.message || err || "");
+    if (!/can't parse entities|parse entities|entity starting at byte offset/i.test(message)) throw err;
+    console.warn("AI reply Markdown parse failed; retrying as plain text:", message);
+    return bot.sendMessage(chatId, reply, keyboard);
+  }
+}
+
 async function aiFormat(text, style = "自动判断") {
   const styleRule = style === "自动判断" ? "根据内容自动选择合适的排版结构。" : style === "频道发布风" ? "你是一位 Telegram 频道编辑。把内容改写成适合频道发布的图文消息。要求：1) 提炼 1 个核心结论放在首行并用 **加粗**；2) 正文只保留 3 个以内最有价值的要点，用 • 列出；3) 删除所有客套话和铺垫，直接说重点；4) 语言口语化，像在跟朋友解释；5) 全文控制在 300 字以内；6) 末尾加一句行动引导（如「觉得有用就收藏一下」）；不得编造原文没有的信息，只输出最终文案。" : "采用" + style + "的视觉风格。";
   const prompt = [
@@ -414,7 +425,7 @@ bot.on("callback_query", async query => {
       const result = await aiFormat(user.text, style);
       user.lastFormatMode = style === "自动判断" ? user.style : style;
       users.set(chatId, user);
-      await bot.sendMessage(chatId, result, { parse_mode: "Markdown", ...mainKeyboard() });
+      await sendAIReply(chatId, result, mainKeyboard());
     } catch (err) {
       await bot.sendMessage(chatId, "❌ AI 排版失败：" + (err.message || String(err)).slice(0, 200), mainKeyboard());
     } finally {
@@ -454,7 +465,7 @@ bot.on("message", async msg => {
       const reply = aiResult.content;
       user.history.push({ role: "assistant", content: reply });
       users.set(chatId, user);
-      await bot.sendMessage(chatId, reply, { parse_mode: "Markdown", ...aiChatKeyboard() });
+      await sendAIReply(chatId, reply, aiChatKeyboard());
     } catch (err) {
       // Do not keep a failed user turn in the conversation context; it can poison the next retry.
       user.history = previousHistory;
