@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { requestAI } = require("../ai-provider");
 
-test("falls back to the next configured provider when the primary model fails", async () => {
+test("uses the exact OpenRouter free router slug and falls back only when configured", async () => {
   const envKeys = [
     "AI_PROVIDER", "AI_FALLBACK_PROVIDERS",
     "OPENROUTER_API_KEY", "OPENROUTER_MODEL",
@@ -14,19 +14,15 @@ test("falls back to the next configured provider when the primary model fails", 
   const calls = [];
 
   Object.assign(process.env, {
-    AI_PROVIDER: "auto",
-    AI_FALLBACK_PROVIDERS: "openrouter,deepseek",
+    AI_PROVIDER: "openrouter",
+    AI_FALLBACK_PROVIDERS: "openrouter",
     OPENROUTER_API_KEY: "test-openrouter-key",
-    OPENROUTER_MODEL: "openrouter/free",
-    DEEPSEEK_API_KEY: "test-deepseek-key"
+    OPENROUTER_MODEL: "openrouter/free"
   });
-  for (const key of ["OPENAI_API_KEY", "GROQ_API_KEY", "SILICONFLOW_API_KEY", "CUSTOM_AI_API_KEY"]) delete process.env[key];
+  for (const key of ["DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "SILICONFLOW_API_KEY", "CUSTOM_AI_API_KEY"]) delete process.env[key];
 
   global.fetch = async (url, options) => {
     calls.push({ url: String(url), body: JSON.parse(options.body) });
-    if (calls.length === 1) {
-      return { ok: false, status: 404, text: async () => '{"error":{"message":"model not found"}}' };
-    }
     return {
       ok: true,
       status: 200,
@@ -37,11 +33,11 @@ test("falls back to the next configured provider when the primary model fails", 
   try {
     const result = await requestAI([{ role: "user", content: "测试" }], { timeoutMs: 1000 });
     assert.equal(result.content, "排版完成");
-    assert.equal(result.provider, "deepseek");
-    assert.equal(calls.length, 2);
-    assert.equal(calls[0].body.model, "cognitivecomputations/dolphin-mistral-24b-venice-edition:free");
-    assert.equal(calls[1].url, "https://api.deepseek.com/v1/chat/completions");
-    assert.equal(calls[1].body.model, "deepseek-chat");
+    assert.equal(result.provider, "openrouter");
+    assert.equal(result.model, "openrouter/free");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].body.model, "openrouter/free");
+    assert.equal(calls[0].url, "https://openrouter.ai/api/v1/chat/completions");
   } finally {
     global.fetch = originalFetch;
     for (const key of envKeys) {
