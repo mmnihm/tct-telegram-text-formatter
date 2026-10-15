@@ -428,14 +428,13 @@ async function sendAIReply(chatId, reply, keyboard) {
 
 async function aiFormat(text, style = "自动判断") {
   const styleRule = style === "自动判断" ? "根据内容自动选择合适的排版结构。" : style === "频道发布风" ? "你是一位 Telegram 频道编辑。把内容改写成适合频道发布的图文消息。要求：1) 提炼 1 个核心结论放在首行并用 **加粗**；2) 正文只保留 3 个以内最有价值的要点，用 • 列出；3) 删除所有客套话和铺垫，直接说重点；4) 语言口语化，像在跟朋友解释；5) 全文控制在 300 字以内；6) 末尾加一句行动引导（如「觉得有用就收藏一下」）；不得编造原文没有的信息，只输出最终文案。" : "采用" + style + "的视觉风格。";
-  const prompt = [
-    "你是一个专业的中文文字排版助手。",
-    styleRule,
-    "只输出排版后的最终文案，不要解释。",
-    "原文：",
-    text
-  ].join("\n");
-  return requestAI(prompt);
+  const system = "你是一个专业的中文文字排版助手。" + styleRule + " 只输出排版后的最终文案，不要解释。";
+  const messages = [
+    { role: "system", content: system },
+    { role: "user", content: "原文：\n" + text }
+  ];
+  const result = await requestAI(messages);
+  return result.content || result;
 }
 
 bot.onText(/\/start/, msg => {
@@ -526,7 +525,9 @@ bot.on("message", async msg => {
     if (aiBusy.has(chatId)) return bot.sendMessage(chatId, "⏳ 请稍候。", aiChatKeyboard());
     aiBusy.add(chatId);
     try {
-      const reply = await requestAI(user.history.map(h => h.content).join("\n"));
+      const messages = user.history.map(h => ({ role: h.role, content: h.content }));
+      const result = await requestAI(messages);
+      const reply = result.content || result;
       user.history.push({ role: "assistant", content: reply });
       users.set(chatId, user);
       await sendAIReply(chatId, reply, aiChatKeyboard());
