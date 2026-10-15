@@ -1,13 +1,9 @@
-const DEFAULT_OPENROUTER_MODEL = "cognitivecomputations/dolphin-mistral-24b-venice-edition:free";
-
 function configuredProviders() {
   const env = process.env;
   const all = {
     openrouter: {
       key: env.OPENROUTER_API_KEY,
-      model: String(env.OPENROUTER_MODEL || "").trim() === "openrouter/free" || !String(env.OPENROUTER_MODEL || "").trim()
-        ? DEFAULT_OPENROUTER_MODEL
-        : String(env.OPENROUTER_MODEL).trim(),
+      model: String(env.OPENROUTER_MODEL || "openrouter/free").trim(),
       baseURL: "https://openrouter.ai/api/v1",
       headers: {
         "HTTP-Referer": "https://github.com/mmnihm/tct-telegram-text-formatter",
