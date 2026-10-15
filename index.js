@@ -17,15 +17,10 @@ const MAX_CACHED_USERS = 5000;
 const OUTPUT_CHUNK_SIZE = 1000;
 
 const styles = {
-  "✨ 简洁风": { icon: "✨", divider: false },
-  "💎 高级风": { icon: "💎", divider: true },
-  "🔥 宣传风": { icon: "🔥", divider: true },
-  "📋 信息风": { icon: "📋", divider: true },
-  "🌸 可爱风": { icon: "🌸", divider: false },
-  "🖤 极简风": { icon: "", divider: false },
-  "📢 频道发布风": { icon: "📢", divider: true },
   "✦ 熟女风": { icon: "✦", divider: true },
-  "♡ 少女风": { icon: "♡", divider: true }
+  "♡ 少女风": { icon: "♡", divider: true },
+  "✦ 绿帽风": { icon: "✦", divider: true },
+  "📢 频道发布风": { icon: "📢", divider: true }
 };
 
 function getUser(chatId) {
@@ -35,7 +30,7 @@ function getUser(chatId) {
       const oldestChatId = users.keys().next().value;
       if (oldestChatId !== undefined) users.delete(oldestChatId);
     }
-    user = { style: "✨ 简洁风", text: "", nextFormatMode: null, lastFormatMode: null, aiChat: false, history: [], channelTemplate: null, settingTemplate: false };
+    user = { style: "✦ 熟女风", text: "", nextFormatMode: null, lastFormatMode: null, aiChat: false, history: [], channelTemplate: null, settingTemplate: false };
     users.set(chatId, user);
   }
   return user;
@@ -149,13 +144,14 @@ function isImportant(line) {
 }
 
 function formatSmart(raw, styleName, template) {
-  const style = styles[styleName] || styles["✨ 简洁风"];
+  const style = styles[styleName] || styles["✦ 熟女风"];
   let text = cleanText(raw);
   if (!text) return "";
   if (styleName === "🗂️ 论坛原帖风") return formatForumPost(text);
   if (styleName === "📢 频道发布风") return formatChannelPost(text, template);
   if (styleName === "✦ 熟女风") return formatMaturePost(text);
   if (styleName === "♡ 少女风") return formatGirlPost(text);
+  if (styleName === "✦ 绿帽风") return formatGreenHatPost(text);
   text = text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
   const output = [];
   let firstContent = true;
@@ -180,7 +176,7 @@ function formatChannelPost(raw, template) {
   if (!text) return "";
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
   if (!lines.length) return "";
-  const title = lines[0].replace(/^【|】$/g, "").replace(/^📢\s*/, "").replace(/^[✨💎🔥📋🌸🖤📢]\s*/, "");
+  const title = lines[0].replace(/^【|】$/g, "").replace(/^📢\s*/, "").replace(/^[✨💎🔥📋🌸🖤📢✦♡]\s*/, "");
   const skipRe = /^(?:更多|关注|订阅|点赞|转发|分享到|👉|觉得有用|收藏一下|伦理之爱|售价|钻石|￥|¥)/;
   const timeOnlyRe = /^(?:(?:\d{1,2}:\d{2}(?::\d{2})?)|(?:\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:\s+\d{1,2}:\d{2})?)|发布时间|发布于|日期)\s*[:：]?\s*[\d\-/:年月日\s]*$/;
   const authorRe = /^[#＃]?([\p{Script=Han}A-Za-z0-9_.-]{1,40})\s*楼主$/u;
@@ -240,13 +236,30 @@ function formatChannelPost(raw, template) {
 
 function extractTitleAndBody(raw) {
   const lines = cleanText(raw).split("\n").map(l => l.trim()).filter(Boolean);
-  if (!lines.length) return { title: "", body: "", tags: [] };
+  if (!lines.length) return { title: "", body: "", tags: [], duration: "", price: "" };
   let title = lines[0]
     .replace(/^【|】$/g, "")
     .replace(/^[✨💎🔥📋🌸🖤📢✦♡]\s*/, "")
-    .replace(/^(?:熟女|少女)\s*[｜|]\s*/, "")
+    .replace(/^(?:熟女|少女|绿帽)\s*[｜|]\s*/, "")
     .trim();
-  const bodyLines = lines.slice(1).filter(l => !isDivider(l) && !/^(?:#+\s*)+$/.test(l));
+  if (title.length > 28) {
+    const cut = title.slice(0, 28);
+    const lastPunc = Math.max(cut.lastIndexOf("，"), cut.lastIndexOf("。"), cut.lastIndexOf(" "), cut.lastIndexOf("、"));
+    title = (lastPunc > 10 ? cut.slice(0, lastPunc) : cut).trim();
+  }
+  const bodyLines = [];
+  let duration = "";
+  let price = "";
+  for (const line of lines.slice(1)) {
+    if (isDivider(line) || /^(?:#+\s*)+$/.test(line)) continue;
+    if (/👤|#海角|发布时间|楼主/.test(line)) continue;
+    const durMatch = line.match(/(\d+\s*分\s*\d+\s*秒|\d+:\d+|\d+\s*分钟)/);
+    if (durMatch && !duration) duration = durMatch[1].replace(/\s+/g, "");
+    const priceMatch = line.match(/(?:售价|价格|钻石)[：:\s]*([\d.]+)\s*钻石?|([\d.]+)\s*钻石/);
+    if (priceMatch && !price) price = (priceMatch[1] || priceMatch[2]) + " 钻石";
+    if (/售价|钻石|出售内容|点击预览|视频验证/.test(line) && line.length < 40) continue;
+    bodyLines.push(line);
+  }
   const body = bodyLines.join("\n");
   const tagCandidates = [];
   const addTag = (t) => {
@@ -254,36 +267,95 @@ function extractTitleAndBody(raw) {
     if (tag.length >= 2 && tag.length <= 10 && !tagCandidates.includes(tag)) tagCandidates.push(tag);
   };
   for (const m of (title + " " + body).matchAll(/#([\p{Script=Han}A-Za-z0-9]{2,10})/gu)) addTag(m[1]);
+  const kwMap = [
+    [/绿帽|换妻|交换|一人操一个|操我老婆|他老婆/, "绿帽"],
+    [/人妻|老婆|婚/, "人妻"],
+    [/黑丝/, "黑丝"], [/白丝/, "白丝"], [/丝袜/, "丝袜"],
+    [/OL|上班|下班|办公室/, "OL"],
+    [/三亚|酒店|双人房|海边/, "出轨"],
+    [/熟女|姐姐|阿姨/, "熟女"],
+    [/少女|制服|白丝|双马尾/, "少女"],
+    [/海角/, "海角"]
+  ];
+  const full = title + " " + body;
+  for (const [re, tag] of kwMap) if (re.test(full)) addTag(tag);
   const keywords = title.split(/[，。！？!?、：:｜|\s\-—_【】\[\]()（）]+/).filter(Boolean);
-  for (const k of keywords) if (k.length <= 8) addTag(k);
-  return { title, body, tags: tagCandidates.slice(0, 5) };
+  for (const k of keywords) if (k.length >= 2 && k.length <= 8) addTag(k);
+  return { title, body, tags: tagCandidates.slice(0, 6), duration, price };
 }
 
 function formatMaturePost(raw) {
-  const { title, body, tags } = extractTitleAndBody(raw);
+  const { title, body, tags, duration, price } = extractTitleAndBody(raw);
   if (!title && !body) return "";
   const displayTitle = title || "熟女";
   const defaultTags = ["熟女", "人妻", "成熟"];
   const allTags = [...new Set([...defaultTags, ...tags])].slice(0, 6);
   const tagStr = allTags.map(t => "#" + t).join("  ");
-  const desc = body || "";
+  const paras = body.split(/\n+/).map(p => p.trim()).filter(p => p.length > 8);
+  const summary = paras.slice(0, 3).join("\n\n");
   let result = `<b>✦ 熟女｜${escapeHtml(displayTitle)}</b>\n\n`;
-  if (desc) result += escapeHtml(desc) + "\n\n";
-  result += "————————————\n\n" + escapeHtml(tagStr);
+  if (summary) result += escapeHtml(summary) + "\n\n";
+  result += "————————————\n";
+  if (duration || price) {
+    const meta = [duration ? "⏱ " + duration : "", price ? "💰 " + price : ""].filter(Boolean).join("  ·  ");
+    if (meta) result += "\n" + escapeHtml(meta) + "\n";
+  }
+  result += "\n" + escapeHtml(tagStr);
   return result.trim();
 }
 
 function formatGirlPost(raw) {
-  const { title, body, tags } = extractTitleAndBody(raw);
+  const { title, body, tags, duration, price } = extractTitleAndBody(raw);
   if (!title && !body) return "";
   const displayTitle = title || "少女";
   const defaultTags = ["少女", "清纯", "软萌"];
   const allTags = [...new Set([...defaultTags, ...tags])].slice(0, 6);
   const tagStr = allTags.map(t => "#" + t).join("  ");
-  const desc = body || "";
+  const paras = body.split(/\n+/).map(p => p.trim()).filter(p => p.length > 8);
+  const summary = paras.slice(0, 3).join("\n\n");
   let result = `<b>♡ 少女｜${escapeHtml(displayTitle)}</b>\n\n`;
-  if (desc) result += escapeHtml(desc) + "\n\n";
-  result += "————————————\n\n" + escapeHtml(tagStr);
+  if (summary) result += escapeHtml(summary) + "\n\n";
+  result += "————————————\n";
+  if (duration || price) {
+    const meta = [duration ? "⏱ " + duration : "", price ? "💰 " + price : ""].filter(Boolean).join("  ·  ");
+    if (meta) result += "\n" + escapeHtml(meta) + "\n";
+  }
+  result += "\n" + escapeHtml(tagStr);
+  return result.trim();
+}
+
+function formatGreenHatPost(raw) {
+  const { title, body, tags, duration, price } = extractTitleAndBody(raw);
+  if (!title && !body) return "";
+  let displayTitle = title || "绿帽";
+  const full = title + "\n" + body;
+  let punch = "";
+  const punchRe = /(我跟他老婆|他操我老婆|一人操一个|换妻|交换|中途玩累了[^。\n]{0,20})/;
+  const m = full.match(punchRe);
+  if (m) punch = m[0].replace(/[，。\s]+$/, "");
+  if (!punch && title.length > 12) {
+    const parts = title.split(/[，,]/);
+    if (parts.length > 1) punch = parts.slice(1).join("，").trim();
+  }
+  const defaultTags = ["绿帽", "换妻"];
+  const allTags = [...new Set([...defaultTags, ...tags])].slice(0, 6);
+  const tagStr = allTags.map(t => "#" + t).join("  ");
+  const paras = body.split(/\n+/).map(p => p.trim()).filter(p => p.length > 15 && !/售价|钻石|出售|预览/.test(p));
+  let atmosphere = "";
+  if (paras.length) {
+    const key = paras.filter(p => /酒店|房间|海边|双人房|海风|疲惫|玩累/.test(p));
+    const use = (key.length ? key : paras).slice(0, 2);
+    atmosphere = use.map(p => p.length > 60 ? p.slice(0, 58) + "…" : p).join("\n\n");
+  }
+  let result = `<b>✦ 绿帽｜${escapeHtml(displayTitle)}</b>\n\n`;
+  if (punch) result += escapeHtml(punch) + "\n\n";
+  result += "————————————\n\n";
+  if (atmosphere) result += escapeHtml(atmosphere) + "\n\n————————————\n";
+  if (duration || price) {
+    const meta = [duration ? "⏱ " + duration : "", price ? "💰 " + price : ""].filter(Boolean).join("  ·  ");
+    if (meta) result += "\n" + escapeHtml(meta) + "\n";
+  }
+  result += "\n" + escapeHtml(tagStr);
   return result.trim();
 }
 
@@ -399,11 +471,8 @@ function mainKeyboard() {
 
 function styleKeyboard() {
   return { reply_markup: { inline_keyboard: [
-    [{ text: "✨ 简洁风", callback_data: "style:✨ 简洁风" }, { text: "💎 高级风", callback_data: "style:💎 高级风" }],
-    [{ text: "🔥 宣传风", callback_data: "style:🔥 宣传风" }, { text: "📋 信息风", callback_data: "style:📋 信息风" }],
-    [{ text: "🌸 可爱风", callback_data: "style:🌸 可爱风" }, { text: "🖤 极简风", callback_data: "style:🖤 极简风" }],
-    [{ text: "📢 频道发布风", callback_data: "style:📢 频道发布风" }],
-    [{ text: "✦ 熟女风", callback_data: "style:✦ 熟女风" }, { text: "♡ 少女风", callback_data: "style:♡ 少女风" }]
+    [{ text: "✦ 熟女风", callback_data: "style:✦ 熟女风" }, { text: "♡ 少女风", callback_data: "style:♡ 少女风" }],
+    [{ text: "✦ 绿帽风", callback_data: "style:✦ 绿帽风" }, { text: "📢 频道发布风", callback_data: "style:📢 频道发布风" }]
   ] } };
 }
 
@@ -438,11 +507,11 @@ async function aiFormat(text, style = "自动判断") {
 }
 
 bot.onText(/\/start/, msg => {
-  bot.sendMessage(msg.chat.id, "👋 你好！我是 TCT 文字排版机器人。\n\n直接发送文字即可自动排版。", mainKeyboard());
+  bot.sendMessage(msg.chat.id, "👋 你好！我是 TCT 文字排版机器人。\n\n平时发文字只保存，不排版。\n想发频道时：选风格 → 点「📝 排版」。", mainKeyboard());
 });
 
 bot.onText(/\/help/, msg => {
-  bot.sendMessage(msg.chat.id, "📖 使用帮助\n\n直接发送文字 → 自动用当前风格排版\n\n🎨 频道风格：选择熟女 / 少女 / 频道发布等风格\n📝 排版：对最近文字重新排版\n🤖 AI：智能整理\n⚙️ 设置：模板 / 净化 / 帮助", mainKeyboard());
+  bot.sendMessage(msg.chat.id, "📖 使用帮助\n\n平时发文字只保存，不自动排版。\n想发频道时：先选风格，再点「📝 排版」。\n\n🎨 频道风格：熟女 / 少女 / 绿帽 / 频道\n📝 排版：排最近一条\n🤖 AI / ⚙️ 设置", mainKeyboard());
 });
 
 bot.on("callback_query", async query => {
@@ -453,7 +522,17 @@ bot.on("callback_query", async query => {
   if (data.startsWith("style:")) {
     user.style = data.slice(6);
     users.set(chatId, user);
-    return bot.sendMessage(chatId, "✅ 已切换为「" + user.style + "」", mainKeyboard());
+    if (user.text) {
+      return bot.sendMessage(chatId, "✅ 已切换为「" + user.style + "」\n\n最近有一条文字，要马上排版吗？", {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📝 马上排版", callback_data: "set:reformat" }],
+            [{ text: "先不了", callback_data: "set:noop" }]
+          ]
+        }
+      });
+    }
+    return bot.sendMessage(chatId, "✅ 已切换为「" + user.style + "」\n\n发送文字后点「📝 排版」即可。", mainKeyboard());
   }
   if (data.startsWith("set:")) {
     const action = data.slice(4);
@@ -466,17 +545,20 @@ bot.on("callback_query", async query => {
       if (!user.text) return bot.sendMessage(chatId, "🧹 请先发送一段文字，再使用投稿净化。", mainKeyboard());
       const cleaned = simplifyText(user.text);
       user.text = cleaned;
-      user.lastFormatMode = "🖤 极简风";
+      user.lastFormatMode = user.style;
       users.set(chatId, user);
       if (!cleaned) return bot.sendMessage(chatId, "⚠️ 清理后没有剩余内容。", mainKeyboard());
-      return sendFormattedText(chatId, cleaned, "🖤 极简风");
+      return sendFormattedText(chatId, cleaned, user.style);
     }
     if (action === "reformat") {
       if (!user.text) return bot.sendMessage(chatId, "⚠️ 还没有上一条文字。", mainKeyboard());
       return sendFormattedText(chatId, user.text, user.lastFormatMode || user.style);
     }
+    if (action === "noop") {
+      return bot.sendMessage(chatId, "好的，随时点「📝 排版」即可。", mainKeyboard());
+    }
     if (action === "help") {
-      return bot.sendMessage(chatId, "📖 使用帮助\n\n直接发送文字 → 用当前风格自动排版\n\n🎨 频道风格：选择熟女风 / 少女风 / 频道发布风等\n📝 排版：对最近一次文字重新排版\n🤖 AI：智能整理结构\n⚙️ 设置：模板、净化、帮助", mainKeyboard());
+      return bot.sendMessage(chatId, "📖 使用帮助\n\n平时发文字只保存，不自动排版。\n想发频道时：先选风格，再点「📝 排版」。\n\n🎨 频道风格：熟女 / 少女 / 绿帽 / 频道\n📝 排版：排最近一条\n🤖 AI / ⚙️ 设置", mainKeyboard());
     }
   }
   if (data.startsWith("ai:")) {
@@ -572,14 +654,12 @@ bot.on("message", async msg => {
   if (msg.text === "🤖 AI") return bot.sendMessage(chatId, "🤖 AI 排版\n\n请选择一种方式：", aiKeyboard());
   if (msg.text === "🎨 频道风格") return bot.sendMessage(chatId, "🎨 请选择频道排版风格：", styleKeyboard());
 
+  // 普通文字：只保存，不自动排版（想排版再点「📝 排版」）
   user.text = cleanText(msg.text);
+  user.nextFormatMode = null;
   users.set(chatId, user);
   if (!user.text) return bot.sendMessage(chatId, "⚠️ 没有检测到有效文字，请重新发送。", mainKeyboard());
-  const formatMode = user.nextFormatMode === "forum" ? "🗂️ 论坛原帖风" : user.style;
-  user.nextFormatMode = null;
-  user.lastFormatMode = formatMode;
-  users.set(chatId, user);
-  return sendFormattedText(chatId, user.text, formatMode);
+  return bot.sendMessage(chatId, "✅ 已收到，共 " + user.text.length + " 字。\n\n需要排版时点下方「📝 排版」，或先选「🎨 频道风格」。", mainKeyboard());
 });
 
 bot.on("polling_error", err => console.error("Polling error:", err.message));
