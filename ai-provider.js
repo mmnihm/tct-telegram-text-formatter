@@ -60,27 +60,55 @@ async function requestAI(messages, options = {}) {
     const provider = available[name];
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const endpoint = provider.baseURL.replace(/\/+$/, "") + "/chat/completions";
+    const headers = {
+      Authorization: "Bearer " + provider.key,
+      "Content-Type": "application/json",
+      ...(provider.headers || {})
+    };
+    const standardPayload = {
+      model: provider.model,
+      messages,
+      temperature: options.temperature ?? 0.3,
+      max_tokens: options.maxTokens ?? 2000
+    };
     try {
-      const response = await fetch(provider.baseURL.replace(/\/+$/, "") + "/chat/completions", {
+      let response = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          Authorization: "Bearer " + provider.key,
-          "Content-Type": "application/json",
-          ...(provider.headers || {})
-        },
-        body: JSON.stringify({
-          model: provider.model,
-          messages,
-          temperature: options.temperature ?? 0.3,
-          max_tokens: options.maxTokens ?? 2000
-        }),
+        headers,
+        body: JSON.stringify(standardPayload),
         signal: controller.signal
       });
-      const bodyText = await response.text();
+      let bodyText = await response.text();
+
+      // Some free-model providers reject optional generation parameters.
+      // Retry OpenRouter once with the minimum documented request body.
+      if (name === "openrouter" && response.status === 400) {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ model: provider.model, messages }),
+          signal: controller.signal
+        });
+        bodyText = await response.text();
+      }
+
       if (!response.ok) {
-        failures.push(name + " " + response.status + ": " + bodyText.slice(0, 240));
+        let detail = bodyText;
+        try {
+          const parsed = JSON.parse(bodyText);
+          detail = parsed.error?.metadata?.raw || parsed.error?.message || bodyText;
+          if (parsed.error?.metadata?.provider_name) {
+            detail = parsed.error.metadata.provider_name + ": " + detail;
+          }
+          if (parsed.error?.metadata?.provider_code) {
+            detail += " (provider code " + parsed.error.metadata.provider_code + ")";
+          }
+        } catch {}
+        failures.push(name + " " + response.status + ": " + String(detail).slice(0, 600));
         continue;
       }
+
       let data;
       try {
         data = JSON.parse(bodyText);
@@ -94,14 +122,14 @@ async function requestAI(messages, options = {}) {
         failures.push(name + ": AI 返回空内容 (" + (choice?.finish_reason || data.error?.message || "unknown") + ")");
         continue;
       }
-      return { content, provider: name, model: provider.model };
+      return { content, provider: name, model: data.model || provider.model };
     } catch (error) {
-      failures.push(name + ": " + (error.name === "AbortError" ? "请求超时" : (error.message || String(error))).slice(0, 240));
+      failures.push(name + ": " + (error.name === "AbortError" ? "请求超时" : (error.message || String(error))).slice(0, 600));
     } finally {
       clearTimeout(timer);
     }
   }
-  throw new Error("所有已配置 AI 服务商均失败：" + failures.join("；").slice(0, 900));
+  throw new Error("所有已配置 AI 服务商均失败：" + failures.join("；").slice(0, 1400));
 }
 
 module.exports = { requestAI };
