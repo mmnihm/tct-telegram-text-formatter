@@ -292,7 +292,7 @@ function formatMaturePost(raw) {
   const displayTitle = title || "熟女";
   const defaultTags = ["熟女", "人妻", "成熟"];
   const allTags = [...new Set([...defaultTags, ...tags])].slice(0, 6);
-  const tagStr = allTags.map(t => "#" + t).join("  ");
+  const tagStr = allTags.map(t => "#" + t).join(" ");
   const paras = body.split(/\n+/).map(p => p.trim()).filter(p => p.length > 8);
   const summary = paras.slice(0, 3).join("\n\n");
   let result = `<b>✦ 熟女｜${escapeHtml(displayTitle)}</b>\n\n`;
@@ -312,7 +312,7 @@ function formatGirlPost(raw) {
   const displayTitle = title || "少女";
   const defaultTags = ["少女", "清纯", "软萌"];
   const allTags = [...new Set([...defaultTags, ...tags])].slice(0, 6);
-  const tagStr = allTags.map(t => "#" + t).join("  ");
+  const tagStr = allTags.map(t => "#" + t).join(" ");
   const paras = body.split(/\n+/).map(p => p.trim()).filter(p => p.length > 8);
   const summary = paras.slice(0, 3).join("\n\n");
   let result = `<b>♡ 少女｜${escapeHtml(displayTitle)}</b>\n\n`;
@@ -341,7 +341,7 @@ function formatGreenHatPost(raw) {
   }
   const defaultTags = ["绿帽", "换妻"];
   const allTags = [...new Set([...defaultTags, ...tags])].slice(0, 6);
-  const tagStr = allTags.map(t => "#" + t).join("  ");
+  const tagStr = allTags.map(t => "#" + t).join(" ");
   const paras = body.split(/\n+/).map(p => p.trim()).filter(p => p.length > 15 && !/售价|钻石|出售|预览/.test(p));
   let atmosphere = "";
   if (paras.length) {
@@ -506,7 +506,7 @@ async function sendAIReply(chatId, reply, keyboard) {
 
 async function aiFormat(text, style = "自动判断") {
   const forumRule = "使用论坛原帖风排版：第一行作为原帖标题并加粗；标题下方提取 2 至 4 个与原文直接相关的标签；保留原文正文和原有段落顺序；能识别作者时保留作者信息，能识别发布时间时保留时间；去掉重复分隔线和无意义空行。不要改写成频道宣传文，不要擅自总结或删掉正文，不要添加行动引导、关注提示、虚构信息或原文没有的标签。";
-  const channelRule = "使用 Telegram 频道发布风：标题醒目，正文清晰分段，可使用少量小标题和分隔线；忠实保留原文事实，不编造内容。只有用户明确选择频道发布风时，才可以优化成频道发布稿；不要擅自添加收藏、关注或行动引导。";
+  const channelRule = "使用 Telegram 频道发布风：标题醒目，正文清晰分段，可使用少量小标题和分隔线；忠实保留原文事实，不编造内容。原文有多个 #标签时，将标签放在同一行，标签之间只用一个空格，不要用两个空格、逗号或换行分隔。只有用户明确选择频道发布风时，才可以优化成频道发布稿；不要擅自添加收藏、关注或行动引导。";
   const styleRule = style === "自动判断"
     ? "先判断原文类型。若原文像论坛帖子、采集原帖或带作者/发布时间的内容，优先使用论坛原帖风；只有原文明显是公告、资讯或频道稿件时才用频道结构。不要默认套用频道模板。"
     : style === "频道发布风" || style === "📢 频道发布风"
