@@ -30,7 +30,7 @@ function getUser(chatId) {
       const oldestChatId = users.keys().next().value;
       if (oldestChatId !== undefined) users.delete(oldestChatId);
     }
-    user = { style: "✦ 熟女风", text: "", nextFormatMode: null, lastFormatMode: null, aiChat: false, history: [], channelTemplate: null, settingTemplate: false };
+    user = { style: "🗂️ 论坛原帖风", text: "", nextFormatMode: null, lastFormatMode: null, aiChat: false, history: [], channelTemplate: null, settingTemplate: false };
     users.set(chatId, user);
   }
   return user;
@@ -464,15 +464,16 @@ async function sendFormattedText(chatId, raw, styleName, keyboard = mainKeyboard
 
 function mainKeyboard() {
   return { reply_markup: { keyboard: [
-    [{ text: "🎨 频道风格" }, { text: "📝 排版" }],
+    [{ text: "🎨 排版风格" }, { text: "📝 排版" }],
     [{ text: "🤖 AI" }, { text: "⚙️ 设置" }]
   ], resize_keyboard: true } };
 }
 
 function styleKeyboard() {
   return { reply_markup: { inline_keyboard: [
+    [{ text: "🗂️ 论坛原帖风", callback_data: "style:🗂️ 论坛原帖风" }, { text: "📢 频道发布风", callback_data: "style:📢 频道发布风" }],
     [{ text: "✦ 熟女风", callback_data: "style:✦ 熟女风" }, { text: "♡ 少女风", callback_data: "style:♡ 少女风" }],
-    [{ text: "✦ 绿帽风", callback_data: "style:✦ 绿帽风" }, { text: "📢 频道发布风", callback_data: "style:📢 频道发布风" }]
+    [{ text: "✦ 绿帽风", callback_data: "style:✦ 绿帽风" }]
   ] } };
 }
 
@@ -507,11 +508,11 @@ async function aiFormat(text, style = "自动判断") {
 }
 
 bot.onText(/\/start/, msg => {
-  bot.sendMessage(msg.chat.id, "👋 你好！我是 TCT 文字排版机器人。\n\n平时发文字只保存，不排版。\n想发频道时：选风格 → 点「📝 排版」。", mainKeyboard());
+  bot.sendMessage(msg.chat.id, "👋 你好！我是 TCT 文字排版机器人。\n\n平时发文字只保存，不自动排版。\n默认使用论坛原帖风；需要其他效果时先选「🎨 排版风格」，再点「📝 排版」。", mainKeyboard());
 });
 
 bot.onText(/\/help/, msg => {
-  bot.sendMessage(msg.chat.id, "📖 使用帮助\n\n平时发文字只保存，不自动排版。\n想发频道时：先选风格，再点「📝 排版」。\n\n🎨 频道风格：熟女 / 少女 / 绿帽 / 频道\n📝 排版：排最近一条\n🤖 AI / ⚙️ 设置", mainKeyboard());
+  bot.sendMessage(msg.chat.id, "📖 使用帮助\n\n平时发文字只保存，不自动排版。\n默认使用论坛原帖风；需要其他效果时先选「🎨 排版风格」，再点「📝 排版」。\n\n🎨 排版风格：论坛原帖 / 频道发布 / 熟女 / 少女 / 绿帽\n📝 排版：按当前选中风格排版最近一条\n🤖 AI / ⚙️ 设置", mainKeyboard());
 });
 
 bot.on("callback_query", async query => {
@@ -521,6 +522,7 @@ bot.on("callback_query", async query => {
   await bot.answerCallbackQuery(query.id);
   if (data.startsWith("style:")) {
     user.style = data.slice(6);
+    user.lastFormatMode = user.style;
     users.set(chatId, user);
     if (user.text) {
       return bot.sendMessage(chatId, "✅ 已切换为「" + user.style + "」\n\n最近有一条文字，要马上排版吗？", {
@@ -647,19 +649,21 @@ bot.on("message", async msg => {
   }
 
   if (msg.text === "📝 排版") {
-    if (!user.text) return bot.sendMessage(chatId, "📝 请先发送一段文字，然后再点「排版」。\n\n也可以直接发送文字，我会用当前风格自动排版。", mainKeyboard());
-    return sendFormattedText(chatId, user.text, user.lastFormatMode || user.style);
+    if (!user.text) return bot.sendMessage(chatId, "📝 请先发送一段文字，然后再点「排版」。\n\n默认使用论坛原帖风；也可以先选择其他排版风格。", mainKeyboard());
+    user.lastFormatMode = user.style || "🗂️ 论坛原帖风";
+    users.set(chatId, user);
+    return sendFormattedText(chatId, user.text, user.style || "🗂️ 论坛原帖风");
   }
 
   if (msg.text === "🤖 AI") return bot.sendMessage(chatId, "🤖 AI 排版\n\n请选择一种方式：", aiKeyboard());
-  if (msg.text === "🎨 频道风格") return bot.sendMessage(chatId, "🎨 请选择频道排版风格：", styleKeyboard());
+  if (msg.text === "🎨 排版风格" || msg.text === "🎨 频道风格") return bot.sendMessage(chatId, "🎨 请选择排版风格：", styleKeyboard());
 
   // 普通文字：只保存，不自动排版（想排版再点「📝 排版」）
   user.text = cleanText(msg.text);
   user.nextFormatMode = null;
   users.set(chatId, user);
   if (!user.text) return bot.sendMessage(chatId, "⚠️ 没有检测到有效文字，请重新发送。", mainKeyboard());
-  return bot.sendMessage(chatId, "✅ 已收到，共 " + user.text.length + " 字。\n\n需要排版时点下方「📝 排版」，或先选「🎨 频道风格」。", mainKeyboard());
+  return bot.sendMessage(chatId, "✅ 已收到，共 " + user.text.length + " 字。\n\n需要排版时点下方「📝 排版」；默认论坛原帖风，也可以先选「🎨 排版风格」。", mainKeyboard());
 });
 
 bot.on("polling_error", err => console.error("Polling error:", err.message));
