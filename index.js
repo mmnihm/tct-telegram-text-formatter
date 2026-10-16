@@ -17,6 +17,7 @@ const MAX_CACHED_USERS = 5000;
 const OUTPUT_CHUNK_SIZE = 1000;
 
 const styles = {
+  "🗂️ 论坛原帖风": { icon: "", divider: true },
   "✦ 熟女风": { icon: "✦", divider: true },
   "♡ 少女风": { icon: "♡", divider: true },
   "✦ 绿帽风": { icon: "✦", divider: true },
@@ -144,14 +145,15 @@ function isImportant(line) {
 }
 
 function formatSmart(raw, styleName, template) {
-  const style = styles[styleName] || styles["✦ 熟女风"];
+  const normalizedStyle = styleName || "🗂️ 论坛原帖风";
+  const style = styles[normalizedStyle] || styles["🗂️ 论坛原帖风"];
   let text = cleanText(raw);
   if (!text) return "";
-  if (styleName === "🗂️ 论坛原帖风") return formatForumPost(text);
-  if (styleName === "📢 频道发布风") return formatChannelPost(text, template);
-  if (styleName === "✦ 熟女风") return formatMaturePost(text);
-  if (styleName === "♡ 少女风") return formatGirlPost(text);
-  if (styleName === "✦ 绿帽风") return formatGreenHatPost(text);
+  if (normalizedStyle === "🗂️ 论坛原帖风") return formatForumPost(text);
+  if (normalizedStyle === "📢 频道发布风") return formatChannelPost(text, template);
+  if (normalizedStyle === "✦ 熟女风") return formatMaturePost(text);
+  if (normalizedStyle === "♡ 少女风") return formatGirlPost(text);
+  if (normalizedStyle === "✦ 绿帽风") return formatGreenHatPost(text);
   text = text.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
   const output = [];
   let firstContent = true;
@@ -478,7 +480,12 @@ function styleKeyboard() {
 }
 
 function aiKeyboard() {
-  return { reply_markup: { inline_keyboard: [[{ text: "自动判断", callback_data: "ai:自动判断" }], [{ text: "频道发布风", callback_data: "ai:频道发布风" }], [{ text: "使用当前风格", callback_data: "ai:current" }], [{ text: "💬 进入多轮对话", callback_data: "ai:chat" }]] } };
+  return { reply_markup: { inline_keyboard: [
+    [{ text: "🗂️ 论坛原帖风", callback_data: "ai:🗂️ 论坛原帖风" }, { text: "📢 频道发布风", callback_data: "ai:频道发布风" }],
+    [{ text: "自动判断（论坛优先）", callback_data: "ai:自动判断" }],
+    [{ text: "使用当前风格", callback_data: "ai:current" }],
+    [{ text: "💬 进入多轮对话", callback_data: "ai:chat" }]
+  ] } };
 }
 
 function aiChatKeyboard() {
@@ -497,8 +504,16 @@ async function sendAIReply(chatId, reply, keyboard) {
 }
 
 async function aiFormat(text, style = "自动判断") {
-  const styleRule = style === "自动判断" ? "根据内容自动选择合适的排版结构。" : style === "频道发布风" ? "你是一位 Telegram 频道编辑。把内容改写成适合频道发布的图文消息。要求：1) 提炼 1 个核心结论放在首行并用 **加粗**；2) 正文只保留 3 个以内最有价值的要点，用 • 列出；3) 删除所有客套话和铺垫，直接说重点；4) 语言口语化，像在跟朋友解释；5) 全文控制在 300 字以内；6) 末尾加一句行动引导（如「觉得有用就收藏一下」）；不得编造原文没有的信息，只输出最终文案。" : "采用" + style + "的视觉风格。";
-  const system = "你是一个专业的中文文字排版助手。" + styleRule + " 只输出排版后的最终文案，不要解释。";
+  const forumRule = "使用论坛原帖风排版：第一行作为原帖标题并加粗；标题下方提取 2 至 4 个与原文直接相关的标签；保留原文正文和原有段落顺序；能识别作者时保留作者信息，能识别发布时间时保留时间；去掉重复分隔线和无意义空行。不要改写成频道宣传文，不要擅自总结或删掉正文，不要添加行动引导、关注提示、虚构信息或原文没有的标签。";
+  const channelRule = "使用 Telegram 频道发布风：标题醒目，正文清晰分段，可使用少量小标题和分隔线；忠实保留原文事实，不编造内容。只有用户明确选择频道发布风时，才可以优化成频道发布稿；不要擅自添加收藏、关注或行动引导。";
+  const styleRule = style === "自动判断"
+    ? "先判断原文类型。若原文像论坛帖子、采集原帖或带作者/发布时间的内容，优先使用论坛原帖风；只有原文明显是公告、资讯或频道稿件时才用频道结构。不要默认套用频道模板。"
+    : style === "频道发布风" || style === "📢 频道发布风"
+      ? channelRule
+      : style === "🗂️ 论坛原帖风"
+        ? forumRule
+        : "采用" + style + "的视觉风格，忠实保留原文事实与正文，不添加原文没有的宣传语、行动引导或信息。";
+  const system = "你是一个专业的中文文字排版助手。排版的首要目标是保留原文结构和信息，不要把所有文本都改写成频道文案。" + (style === "自动判断" || style === "🗂️ 论坛原帖风" ? forumRule + " " : "") + styleRule + " 只输出排版后的最终文案，不要解释。";
   const messages = [
     { role: "system", content: system },
     { role: "user", content: "原文：\n" + text }
@@ -554,7 +569,7 @@ bot.on("callback_query", async query => {
     }
     if (action === "reformat") {
       if (!user.text) return bot.sendMessage(chatId, "⚠️ 还没有上一条文字。", mainKeyboard());
-      return sendFormattedText(chatId, user.text, user.lastFormatMode || user.style);
+      return sendFormattedText(chatId, user.text, user.lastFormatMode || user.style || "🗂️ 论坛原帖风");
     }
     if (action === "noop") {
       return bot.sendMessage(chatId, "好的，随时点「📝 排版」即可。", mainKeyboard());
@@ -575,9 +590,9 @@ bot.on("callback_query", async query => {
     if (aiBusy.has(chatId)) return bot.sendMessage(chatId, "⏳ AI 正在处理中，请稍候。", mainKeyboard());
     aiBusy.add(chatId);
     try {
-      const style = mode === "current" ? user.style : mode;
+      const style = mode === "current" ? (user.style || "🗂️ 论坛原帖风") : mode;
       const result = await aiFormat(user.text, style);
-      user.lastFormatMode = style === "自动判断" ? user.style : style;
+      user.lastFormatMode = style === "自动判断" ? (user.style || "🗂️ 论坛原帖风") : style;
       users.set(chatId, user);
       await sendAIReply(chatId, result, mainKeyboard());
     } catch (err) {
