@@ -676,7 +676,7 @@ bot.on("message", async msg => {
   }
 
   if (msg.text === "📝 排版") {
-    if (!user.text) return bot.sendMessage(chatId, "📝 请先发送一段文字，然后再点「排版」。\\n\\n默认使用论坛原帖风；也可以先选择其他排版风格。", mainKeyboard());
+    if (!user.text) return bot.sendMessage(chatId, "📝 请先发送一段文字，然后再点「排版」。\n\n默认使用论坛原帖风；也可以先选择其他排版风格。", mainKeyboard());
     user.lastFormatMode = user.style || "🗂️ 论坛原帖风";
     users.set(chatId, user);
     return sendFormattedText(chatId, user.text, user.style || "🗂️ 论坛原帖风");
