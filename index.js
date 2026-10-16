@@ -466,6 +466,7 @@ async function sendFormattedText(chatId, raw, styleName, keyboard = mainKeyboard
 
 function mainKeyboard() {
   return { reply_markup: { keyboard: [
+    [{ text: "🗂️ 论坛原帖风" }, { text: "📢 频道发布风" }],
     [{ text: "🎨 排版风格" }, { text: "📝 排版" }],
     [{ text: "🤖 AI" }, { text: "⚙️ 设置" }]
   ], resize_keyboard: true } };
@@ -663,8 +664,19 @@ bot.on("message", async msg => {
     });
   }
 
+  if (msg.text === "🗂️ 论坛原帖风" || msg.text === "📢 频道发布风") {
+    const chosenStyle = msg.text;
+    user.style = chosenStyle;
+    user.lastFormatMode = chosenStyle;
+    users.set(chatId, user);
+    if (!user.text) {
+      return bot.sendMessage(chatId, "✅ 已选择「" + chosenStyle + "」。请发送原文，再点「📝 排版」即可。", mainKeyboard());
+    }
+    return sendFormattedText(chatId, user.text, chosenStyle);
+  }
+
   if (msg.text === "📝 排版") {
-    if (!user.text) return bot.sendMessage(chatId, "📝 请先发送一段文字，然后再点「排版」。\n\n默认使用论坛原帖风；也可以先选择其他排版风格。", mainKeyboard());
+    if (!user.text) return bot.sendMessage(chatId, "📝 请先发送一段文字，然后再点「排版」。\\n\\n默认使用论坛原帖风；也可以先选择其他排版风格。", mainKeyboard());
     user.lastFormatMode = user.style || "🗂️ 论坛原帖风";
     users.set(chatId, user);
     return sendFormattedText(chatId, user.text, user.style || "🗂️ 论坛原帖风");
